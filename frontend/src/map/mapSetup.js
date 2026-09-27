@@ -42,26 +42,26 @@ export async function createMapView(containerId) {
   // esriConfig.apiKey). Jedina razlika je da ovaj token ima ograničen
   // vijek trajanja i biće osvježen na sljedećem page loadu (backend cache
   // se brine da ne tražimo novi token od Esri-ja na svaki zahtjev).
-  esriConfig.default.apiKey = accessToken;
+  esriConfig.apiKey = accessToken;
 
   // Tri odvojena GraphicsLayer-a umjesto jednog: observer/sector/rezultati
   // se često mijenjaju nezavisno jedni od drugih (npr. rezultati se brišu i
   // ponovo crtaju na svaki API poziv, dok observer marker ostaje) — lakše
   // je čistiti/ažurirati po sloju nego filtrirati graphics unutar jednog.
-  const observerLayer = new GraphicsLayer.default({ id: "observer-layer" });
-  const sectorLayer = new GraphicsLayer.default({ id: "sector-layer" });
-  const resultsLayer = new GraphicsLayer.default({ id: "results-layer" });
+  const observerLayer = new GraphicsLayer({ id: "observer-layer" });
+  const sectorLayer = new GraphicsLayer({ id: "sector-layer" });
+  const resultsLayer = new GraphicsLayer({ id: "results-layer" });
 
   // Ako je u AGOL-u napravljen poseban Web Map item (preporučeno u review-u,
   // sekcija 4), koristimo njega radi basemap-a; inače fallback na map
   // konstruisan direktno u kodu (i dalje validno za Phase 1 sanity-check).
   const map = ARCGIS_WEB_MAP_ITEM_ID
-    ? new WebMap.default({ portalItem: { id: ARCGIS_WEB_MAP_ITEM_ID } })
-    : new Map.default({ basemap: "topo-vector" });
+    ? new WebMap({ portalItem: { id: ARCGIS_WEB_MAP_ITEM_ID } })
+    : new Map({ basemap: "topo-vector" });
 
   map.addMany([observerLayer, sectorLayer, resultsLayer]);
 
-  const view = new MapView.default({
+  const view = new MapView({
     container: containerId,
     map,
     center: DEFAULT_MAP_CENTER,
