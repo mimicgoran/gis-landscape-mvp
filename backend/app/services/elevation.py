@@ -135,6 +135,18 @@ class ElevationService:
     def _tile_url(self, tile_name: str) -> str:
         return f"https://{self._bucket}.s3.amazonaws.com/{tile_name}/{tile_name}.tif"
 
+    def _cache_path(self, tile_name: str) -> Path:
+        return self._cache_dir / f"{tile_name}.tif"
+
+    def _ensure_tile_downloaded(self, tile_name: str) -> Path:
+        """Preuzima tile ako nije već keširan (vidi modul docstring za
+        obrazloženje download-cache pristupa); ne radi ništa ako fajl već
+        postoji na disku."""
+        cache_path = self._cache_path(tile_name)
+        if not cache_path.exists():
+            _download_tile(self._tile_url(tile_name), cache_path, self._download_timeout_s)
+        return cache_path
+
     def get_elevation(self, latitude: float, longitude: float) -> float | None:
         """Vraća terensku elevaciju u metrima na (latitude, longitude), ili
         `None` ako tile nije dostupan/pokriven, preuzimanje ne uspije, ili
@@ -143,14 +155,16 @@ class ElevationService:
         Namjerno ne pravi razliku (kroz povratnu vrijednost) između "van
         pokrivenosti" i "privremeni mrežni problem" -- pozivalac (Phase 7
         location quality logika) u oba slučaja treba isto: tretirati kao
-        "DEM nedostupan" i nastaviti dalje (brief, tačka 42)."""
+        "DEM nedostupan" i nastaviti dalje (brief, tačka 42).
+
+        Za VIŠE tačaka odjednom (npr. Phase 8 line-of-sight profil), koristi
+        `get_elevation_profile()` -- ova metoda otvara `rasterio` fajl po
+        pozivu, što je u redu za pojedinačne upite (dev endpoint), ali
+        rasipnički za stotine/hiljade tačaka duž jedne linije."""
         tile_name = _tile_name(latitude, longitude)
-        cache_path = self._cache_dir / f"{tile_name}.tif"
 
         try:
-            if not cache_path.exists():
-                _download_tile(self._tile_url(tile_name), cache_path, self._download_timeout_s)
-
+            cache_path = self._ensure_tile_downloaded(tile_name)
             with rasterio.open(cache_path) as dataset:
                 sample = next(dataset.sample([(longitude, latitude)]))
                 elevation_m = float(sample[0])
@@ -163,3 +177,40 @@ class ElevationService:
         except (ElevationError, rasterio.errors.RasterioIOError, OSError) as exc:
             logger.warning("DEM elevacija nedostupna za (%s, %s): %s", latitude, longitude, exc)
             return None
+
+    def get_elevation_profile(self, points: list[tuple[float, float]]) -> list[float | None]:
+        """Batch verzija `get_elevation()` -- grupiše tačke po DEM tile-u i
+        svaki tile fajl otvara SAMO JEDNOM (umjesto po tačku), pa sve
+        njegove tačke čita u jednom `rasterio.sample()` pozivu. Bitno za
+        Phase 8 line-of-sight, gdje jedan zahtjev sampluje na stotine do
+        hiljade tačaka duž geodesic linije -- otvaranje fajla po tački bi
+        bilo besmisleno sporo (vidi Phase 8 status u
+        architecture-feasibility-review.md).
+
+        `points` je lista `(latitude, longitude)` -- isti redoslijed
+        argumenata kao `get_elevation()`. Povratna vrijednost prati
+        redoslijed ulaza tačku-po-tačku (uključujući `None` za svaku tačku
+        čiji tile/nodata/preuzimanje ne uspije -- ista graceful-degradation
+        logika kao `get_elevation()`, samo na nivou pojedinačne tačke, ne
+        cijelog poziva)."""
+        results: list[float | None] = [None] * len(points)
+
+        points_by_tile: dict[str, list[int]] = {}
+        for idx, (latitude, longitude) in enumerate(points):
+            tile_name = _tile_name(latitude, longitude)
+            points_by_tile.setdefault(tile_name, []).append(idx)
+
+        for tile_name, indices in points_by_tile.items():
+            try:
+                cache_path = self._ensure_tile_downloaded(tile_name)
+                with rasterio.open(cache_path) as dataset:
+                    nodata = dataset.nodata
+                    coords = [(points[i][1], points[i][0]) for i in indices]  # (lon, lat) za rasterio
+                    for idx, sample in zip(indices, dataset.sample(coords)):
+                        value = float(sample[0])
+                        results[idx] = None if (nodata is not None and value == nodata) else value
+            except (ElevationError, rasterio.errors.RasterioIOError, OSError) as exc:
+                logger.warning("DEM profil nedostupan za tile %s (%d tačaka): %s", tile_name, len(indices), exc)
+                # results[idx] ostaju None za sve tačke ovog tile-a (već inicijalizovano)
+
+        return results

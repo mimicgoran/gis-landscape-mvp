@@ -11,6 +11,7 @@ import pytest
 from app.services.geometry import (
     angular_difference_deg,
     geodesic_distance_km,
+    geodesic_intermediate_points,
     initial_bearing_deg,
     is_within_sector,
 )
@@ -97,10 +98,12 @@ def test_is_within_sector_center_direction_always_inside():
 # --- select_candidates (Phase 5) -----------------------------------------
 
 
-def _peak(osm_id, lat, lon, name=None, ele_m=None):
-    from app.models.feature import OSMPeak
+def _peak(osm_id, lat, lon, name=None, ele_m=None, category="peak"):
+    from app.models.feature import OSMPointFeature
 
-    return OSMPeak(osm_id=osm_id, name=name, latitude=lat, longitude=lon, ele_m=ele_m)
+    return OSMPointFeature(
+        osm_id=osm_id, name=name, latitude=lat, longitude=lon, ele_m=ele_m, category=category
+    )
 
 
 def test_select_candidates_filters_out_of_radius():
@@ -165,3 +168,106 @@ def test_select_candidates_empty_input_returns_empty_list():
     from app.services.geometry import select_candidates
 
     assert select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=45.0, radius_km=20.0, peaks=[]) == []
+
+
+# --- geodesic_intermediate_points (Phase 8) ------------------------------
+
+
+def test_geodesic_intermediate_points_short_distance_returns_empty():
+    # Distanca manja od jednog sample intervala -- nema "terena između".
+    points = geodesic_intermediate_points(0.0, 0.0, 0.0, 0.0001, sample_spacing_m=30.0)
+    assert points == []
+
+
+def test_geodesic_intermediate_points_spacing_and_count():
+    # ~10 km duž ekvatora, spacing 1000 m -> očekujemo oko 9 unutrašnjih
+    # tačaka (10 segmenata - 1), sve strogo između 0 i ukupne distance.
+    lat1, lon1 = 0.0, 0.0
+    lat2, lon2 = 0.0, 0.0899322  # ~10 km na ekvatoru
+    total_distance_km = geodesic_distance_km(lat1, lon1, lat2, lon2)
+
+    points = geodesic_intermediate_points(lat1, lon1, lat2, lon2, sample_spacing_m=1000.0)
+
+    assert len(points) == pytest.approx(9, abs=1)
+    distances = [d for _, _, d in points]
+    assert distances == sorted(distances)  # rastuće
+    assert distances[0] > 0.0
+    assert distances[-1] < total_distance_km * 1000.0
+    # Razmak između uzastopnih tačaka treba biti približno konstantan.
+    gaps = [b - a for a, b in zip(distances, distances[1:])]
+    assert max(gaps) - min(gaps) < 1.0  # metri -- praktično identični razmaci
+
+
+def test_geodesic_intermediate_points_lat_lon_are_between_endpoints():
+    points = geodesic_intermediate_points(43.0, 20.0, 43.1, 20.1, sample_spacing_m=500.0)
+    assert len(points) > 0
+    for lat, lon, _ in points:
+        assert 43.0 < lat < 43.1
+        assert 20.0 < lon < 20.1
+
+
+def test_select_candidates_propagates_category():
+    from app.services.geometry import select_candidates
+
+    peaks = [_peak(1, 0.5, 0.0, name="Vidikovac", category="viewpoint")]
+    candidates = select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=100.0, peaks=peaks)
+
+    assert len(candidates) == 1
+    assert candidates[0].category == "viewpoint"
+
+
+# --- build_sector_polygon (Phase 9) ---------------------------------------
+
+
+def test_build_sector_polygon_contains_observer():
+    from app.services.geometry import build_sector_polygon
+    from shapely.geometry import Point
+
+    polygon = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=40.0, radius_km=10.0)
+    # Observer tačka je vrh isječka -- mora biti na granici/unutar poligona
+    # (touches je dovoljno, jer je tačno vrh wedge-a).
+    assert polygon.distance(Point(0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_build_sector_polygon_contains_point_straight_ahead():
+    from app.services.geometry import build_sector_polygon
+    from shapely.geometry import Point
+
+    # Observer na (0,0), heading sjever (0°), FOV 40°, radius 10 km.
+    # Tačka direktno sjeverno na pola radijusa (lon, lat) = (0, ~0.045)
+    # mora biti unutar sektora.
+    polygon = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=40.0, radius_km=10.0)
+    point_ahead = Point(0.0, 0.045)  # (lon, lat) red -- Shapely konvencija
+    assert polygon.contains(point_ahead)
+
+
+def test_build_sector_polygon_excludes_point_outside_fov():
+    from app.services.geometry import build_sector_polygon
+    from shapely.geometry import Point
+
+    # Ista postavka, ali tačka je istočno (bearing ~90°) -- daleko van FOV=40°
+    # centriranog na sjever (0°).
+    polygon = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=40.0, radius_km=10.0)
+    point_east = Point(0.045, 0.0)
+    assert not polygon.contains(point_east)
+
+
+def test_build_sector_polygon_excludes_point_beyond_radius():
+    from app.services.geometry import build_sector_polygon
+    from shapely.geometry import Point
+
+    polygon = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=40.0, radius_km=10.0)
+    point_far_ahead = Point(0.0, 1.0)  # daleko van 10 km radijusa
+    assert not polygon.contains(point_far_ahead)
+
+
+def test_build_sector_polygon_handles_wraparound_heading():
+    from app.services.geometry import build_sector_polygon
+    from shapely.geometry import Point
+
+    # heading=350, fov=40 -> sektor pokriva otprilike 330-370 (tj. 330-10).
+    # Tačka na bearing ~5 (skoro sjever, malo istočno) mora biti unutra.
+    polygon = build_sector_polygon(0.0, 0.0, heading_deg=350.0, fov_deg=40.0, radius_km=10.0)
+    # bearing ~5 stepeni od (0,0): malo istočno, uglavnom sjeverno.
+    point_near_five_deg = Point(0.004, 0.045)
+    assert polygon.contains(point_near_five_deg)

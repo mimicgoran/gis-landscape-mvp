@@ -701,6 +701,63 @@ Phase 7 je zvanično završen. Sljedeći korak: **Phase 8 — line-of-sight engi
 
 ---
 
+## 26. Phase 8 — status i naučene lekcije (27.09.2026), plus automatski Overpass retry
+
+Phase 8 (line-of-sight engine) je implementiran i end-to-end testiran: 96 backend testova prolazi, i vlasnik projekta je ručno potvrdio pun pipeline (observer → OSM kandidati → DEM → line-of-sight) protiv prave Kopaonik lokacije preko `/api/v1/analyze/preview` -- rezultat je bio plauzibilan (razumna podjela na `visible_features`/`blocked_features`), nakon jednog tranzitornog Overpass `503` koji je uspio na ručni retry.
+
+- **Batch DEM sampling** (`ElevationService.get_elevation_profile()`) -- grupiše sample tačke po tile-u i otvara svaki `rasterio` dataset TAČNO JEDNOM, ne po tački. Bitno jer jedna 30 km line-of-sight provjera zahtijeva i do ~1000 sample tačaka -- otvaranje fajla po tački bi bilo neprihvatljivo sporo.
+- **Sample tačke duž linije**: `geometry.geodesic_intermediate_points()` preko `pyproj.Geod.npts()`, na `Settings.line_of_sight_sample_spacing_m` (30 m, = DEM rezolucija) razmaku, BEZ krajnjih tačaka (observer/target se tretiraju odvojeno).
+- **Granični slučaj (dogovoren prije implementacije):** terenska tačka blokira target samo ako joj je elevation angle STROGO veći (`>`, ne `>=`) od target ugla -- tačka na istom uglu dodiruje liniju posmatranja tačno na nivou cilja, nije stvarna prepreka.
+- **"DEM gap"** (terenska tačka bez dostupne elevacije) se NE tretira kao blokada niti kao greška -- preskače se u max-angle računu, `dem_gap=True` transparentno signalizira nepotpun profil (isti princip kao `location_quality`, Phase 7).
+- **Target elevation prioritet:** OSM `ele` kad postoji, DEM kao fallback; razlika preko `Settings.target_elevation_discrepancy_threshold_m` (50 m -- DEM ima tendenciju blagog potcjenjivanja pravog vrha zbog 30 m usrednjavanja piksela) se SAMO bilježi (`elevation_discrepancy_m`), nikad ne mijenja izabrani izvor.
+- Novi dev endpoint `GET /api/v1/analyze/preview` -- puni pipeline, sync `def` (rasterio/httpx su blokirajući), Overpass poziv preko `asyncio.run()` unutar threadpool thread-a.
+- **Automatski Overpass retry** (dodano nakon prvog ručnog testa, kao direktna reakcija na stvarno viđen `503`): `Settings.overpass_max_retries=2`, `overpass_retry_backoff_s=2.0`, `_TRANSIENT_STATUS_CODES={429,502,503,504}` -- isti princip u oba Overpass servisa (tačkasti i, od Phase 9, area feature-i). Trajne greške (npr. 400) se NE retry-uju -- odmah se odustaje. **Napomena:** ovaj kod je napisan i `py_compile`-provjeren, testovi (`test_osm.py`) su prošireni za oba slučaja (retry-pa-uspije, ne-retry-uje-trajnu-grešku), ali korisnik JOŠ NIJE pokrenuo svježi `pytest` da to potvrdi -- ovo je prva stvar za provjeru u sledećoj sesiji, prije commit-a.
+
+Phase 8 je funkcionalno završen i djelimično verifikovan (96 testova + jedan uspješan ručni end-to-end test); ostaje: potvrda retry testova preko `pytest`, i finalni commit/push (odgođen zbog scope proširenja opisanog u sekciji 27 ispod -- korisnik je odmah nakon Phase 8 verifikacije zatražio prošireni scope, pa se Phase 8 i Phase 9 commit-uju zajedno).
+
+---
+
+## 27. Phase 9 — status i naučene lekcije (27.09.2026): proširenje sa "samo vrhovi" na "sve geografske odrednice bez ulica"
+
+Neposredno nakon Phase 8 verifikacije, vlasnik projekta je eksplicitno odbacio ideju da aplikacija ostane ograničena na planinske vrhove: korisnik postavlja i pitanja poput "koja je rijeka preko puta mene", "koje je mjesto preko puta", "koji je park ispred mene" -- zahtjev je bio da se pokriju SVI geografski OSM elementi OSIM ulica ("sve ostale geografske odrednice jesu potrebne"). Kroz tri kruga prijedlog→korekcija (svaki krug je otkrio stvaran tehnički nedostatak prethodnog prijedloga, ne stilsku primjedbu), scope je sveden na tehnički izvodljiv, i dalje MVP-portfolio-veličine, presjek:
+
+- **Tačkasti feature-i** (isti pipeline kao vrhovi, Phase 4-8, samo dodato `category` polje): `place=city|town|village` (naselja) i `tourism=viewpoint` (vidikovci), pored postojećeg `natural=peak`.
+- **Area feature-i** (NOVI pipeline, sector-intersect + "mini-viewshed", vidi ispod): `waterway=river` (rijeke), `natural=water` (sve vodene površine -- eksplicitan zahtjev "trebaju mi sve vodene površine"), `leisure=park` (parkovi), `boundary=national_park` (nacionalni parkovi).
+- Van scope-a i dalje ostaje: sve što je vezano za ulice/saobraćajnice (`highway=*`) -- eksplicitno isključeno na zahtjev korisnika ("to mi stvarno nije potrebno").
+
+### Zašto NIJE centroid-only pristup (dva kruga korisničke korekcije)
+
+Prvi prijedlog je bio uzeti `out center;` (Overpass centroid) za rijeke/parkove/vodene površine i porediti SAMO tu jednu tačku sa sektorom -- korisnik je ovo eksplicitno odbio ("ovo nije dobar princip") jer feature sa protežnošću može imati centroid VAN sektora dok mu je STVARNI dio (npr. bliža obala) UNUTAR sektora -- centroid-only bi takav feature lažno izostavio iz rezultata. Drugi krug iste greške, sitnija varijanta: pojednostavljen tretman OSM **relacija** (npr. `boundary=national_park`) preko centroida CIJELE relacije -- korisnik je i ovo odbio istim argumentom ("centroid cijele relacije nije dobar pristup... ako sektor pokriva dio poligona a ne njegov centroid, korisnik neće dobiti informaciju da je to Nacionalni park Kopaonik"). Konačno rješenje: relacije dobijaju ISTI pun tretman kao way objekti (nema više posebnog slučaja) -- vidi "Relation → Polygon" ispod.
+
+Korisnik je zatim, kroz `AskUserQuestion`, eksplicitno izabrao najzahtjevniju od tri ponuđene opcije za samu visibility provjeru: **"više tačaka duž isječka (mini-viewshed po feature-u)"**, umjesto jedne reprezentativne tačke ili potpunog izostavljanja visibility provjere za area feature-e. Ovo je namjerno svjesno demandingnija opcija od minimalno potrebne -- prihvaćena uz eksplicitno upozorenje da je ograničena (fiksni mali broj sample-ova po feature-u), NIJE puni raster viewshed (brief, tačka 52, i dalje eksplicitno isključen).
+
+### Novi pipeline za area feature-e
+
+1. **`OverpassAreaService`** (`app/services/osm_areas.py`) -- union Overpass upit za sve četiri kategorije, `out geom;` za punu geometriju. Way → `LineString` (nezatvoren, npr. rijeka) ili `Polygon` (zatvoren prsten). Relation → `Polygon`/`MultiPolygon` preko `shapely.ops.polygonize()` nad `role="outer"` way-ovima (role="inner", tj. rupe/enklave, se IGNORIŠU -- dogovorena pojednostavljenja, dokumentovana granica MVP-a).
+2. **`geometry.build_sector_polygon()`** -- viewing sector kao Shapely `Polygon` (wedge), konstruisan preko `Geod.fwd()` za tačke duž luka na `radius_km`. NAMJERNO u sirovim WGS84 stepenima (bez reprojekcije u metrički CRS) -- na skali do 30 km distorzija je zanemarljiva za topološki intersect (ne mjerenje -- sve stvarne distance/bearing i dalje idu preko `pyproj.Geod`).
+3. **`area_visibility.intersect_with_sector()`** -- stvaran geometrijski `shapely` intersect feature geometrije sa sector poligonom (zamjena za odbačeni centroid pristup). Feature van sektora → potpuno izostavljen iz rezultata.
+4. **Sample tačke duž presječenog dijela** -- linija: duž same linije (`LineString.interpolate()`); poligon: grid UNUTAR presječene površine (ne duž konture, jer kontura presječenog poligona dijelom prati IVICE SAMOG SEKTORA, ne stvarnu granicu feature-a). Spacing (`Settings.area_feature_sample_spacing_m = 200 m`) je namjerno KRUPNIJI od line-of-sight DEM sampling-a (30 m) -- ovdje su sample tačke SAME targeti (svaka pokreće punu `check_visibility()` provjeru), ne teren između, pa gušće sample-ovanje samo umnožava trošak bez proporcionalne koristi. Broj sample-ova je ograničen (`Settings.area_feature_max_samples_per_feature = 12`, ravnomjerno prorijeđeno ako ih ima više).
+5. **Agregacija** -- ISTA `check_visibility()` funkcija (Phase 8, nepromijenjena) po sample tački; `visible_fraction = visible_sample_count / (sample_count - dem_gap_sample_count)`; `visibility` klasifikovan kao `"visible"` (frakcija 1.0), `"partially_visible"` (0 < frakcija < 1.0), ili `"blocked"` (frakcija 0.0). Sample tačke bez DEM-a se izuzimaju iz imenioca (isti "DEM gap" princip kao Phase 8) -- ako NIJEDNA sample tačka nema DEM, feature se u potpunosti izostavlja (ne izmišlja se vidljivost).
+6. Novi model `AnalyzedAreaFeature` (`app/models/feature.py`) i novi `"area_features"` ključ u `/api/v1/analyze/preview` odgovoru, sortiran po `closest_distance_km`, ograničen na `Settings.area_feature_max_results = 15`.
+
+### Ostale odluke
+
+- **Koordinatna konvencija:** sve Shapely geometrije u ovom projektu koriste `(longitude, latitude)` red (Shapely/GeoJSON standard), NE `(lat, lon)` kako OSM/Overpass imenuje polja -- eksplicitno komentarisano i testirano na više mjesta (`test_osm_areas.py::test_way_geometry_uses_lon_lat_order`) jer je zamjena redosleda čest izvor tihih bugova.
+- **Rename zbog proširenog scope-a:** `OSMPeak`→`OSMPointFeature`, `PeakCandidate`→`PointCandidate` (dodato `category: "peak"|"settlement"|"viewpoint"`), `fetch_peaks_in_radius`→`fetch_point_features_in_radius`. Dev endpointi preimenovani: `/osm/peaks`→`/osm/points`, `/osm/candidates`→`/osm/point-candidates`; dodat `/osm/areas` (sirova area geometrija, GeoJSON-oblik, radi ručne provjere PRIJE sector-intersect/sampling sloja).
+- **Pronađen i ispravljen bug prije bilo kakvog testiranja od strane korisnika** (samo-provjera koda prije predaje): `shapely.ops.nearest_points(g1, g2)` vraća `(tačka_na_g1, tačka_na_g2)` -- u prvoj verziji `area_visibility.py` je tuple raspakovan obrnuto (`nearest_on_feature, _ = nearest_points(observer_point, feature.geometry)`), što bi tiho vratilo `closest_distance_km=0` za SVAKI area feature. Uočeno ručnom provjerom logike prije predaje testova, ispravljeno (`_, nearest_on_feature = ...`), sa eksplicitnim komentarom u kodu protiv regresije.
+
+### VAŽNO -- neprovjerena pretpostavka (nije mogla biti empirijski testirana iz ovog razvojnog okruženja)
+
+Cijeli area-feature pipeline pretpostavlja da Overpass `out geom;` ugrađuje PUNU geometriju svakog člana relacije direktno u `element["members"][i]["geometry"]` (dokumentovano, standardno Overpass ponašanje -- isti pristup koristi npr. overpass-turbo). Ova pretpostavka NIJE mogla biti empirijski provjerena: i cloud sandbox u kom je ovaj kod pisan i lokalna bridge VM (`device_bash`) imaju egress politiku koja blokira `overpass-api.de` (oba okruženja vraćaju `403` na CONNECT, potvrđeno direktnim `curl` pokušajem u oba). **Ovo je PRVA stvar za ručnu provjeru** (preko `/api/v1/osm/areas` na tvojoj mašini) prije nego što se rezultat za relacije (nacionalni parkovi) uzme zdravo za gotovo. Ako se pokaže da member geometrija NIJE uključena, popravka je lokalizovana -- dodavanje eksplicitnog rekurzivnog upita (`->.a; (.a; .a >;); out geom;`) u `_build_area_query`, bez uticaja na ostatak pipeline-a.
+
+### Status testiranja
+
+Cijeli Phase 9 kod (`osm_areas.py`, `area_visibility.py`, `build_sector_polygon`, rename, novi modeli/config) je napisan i `py_compile`-provjeren, sa opsežnim novim unit/integracionim testovima (`test_osm_areas.py`, `test_area_visibility.py`, prošireni `test_geometry.py`/`test_osm.py`/`test_analyze.py`) -- ALI, za razliku od svih prethodnih faza, korisnik JOŠ NIJE pokrenuo `pytest` niti uradio ijednu ručnu Swagger provjeru za ovaj kod. Ovo je eksplicitno naznačeno jer ovaj dokument inače bilježi SAMO stvarno potvrđene rezultate (vidi npr. Phase 6-8 sekcije) -- Phase 9 status je "implementirano, čeka verifikaciju", ne "verifikovano".
+
+Sljedeći koraci prije commit-a: (1) `pytest tests/ -v` -- provjeriti da svi novi i postojeći testovi prolaze; (2) ručna provjera `GET /api/v1/osm/areas` za Kopaonik (posebno da li se Nacionalni park Kopaonik ispravno sastavlja iz relacije -- vidi napomenu iznad); (3) ručna provjera `GET /api/v1/analyze/preview` sa area feature-ima uključenim (`visible_features`/`blocked_features`/`area_features` zajedno); (4) tek nakon toga, commit + push (Phase 8 + retry + Phase 9 zajedno, vidi sekciju 26).
+
+---
+
 ## Sljedeći korak
 
-Dokument je odobren (sekcija 0). Implementacija počinje sa PHASE 1 (project setup + ArcGIS mapa) — napredak i odluke iz svake faze se dodaju u ovaj dokument ili u prateće fajlove u `docs/`.
+Dokument je odobren (sekcija 0). Implementacija napreduje faza po fazu -- napredak i odluke iz svake faze se dodaju u ovaj dokument. Trenutno se čeka korisnička `pytest` i ručna Swagger verifikacija za Phase 8 (automatski Overpass retry) i Phase 9 (area feature-i) prije commit-a/push-a.

@@ -1,12 +1,12 @@
 """
-Testovi za Overpass servis -- Phase 4.
+Testovi za Overpass servis (tačkasti feature-i) -- Phase 4, prošireno Phase 9.
 
 Svi testovi koriste mock-ovan httpx odgovor (monkeypatch), ne pravu mrežu --
 CI runner ne smije zavisiti od dostupnosti javnog Overpass servisa da bi
 build ostao zelen (vidi docs/architecture-feasibility-review.md, sekcija 14
 -- "Overpass reliability" je eksplicitno naveden rizik). Stvarna integracija
 protiv prave Overpass instance se provjerava ručno preko
-GET /api/v1/osm/peaks (Swagger UI ili curl) za odabranu test lokaciju.
+GET /api/v1/osm/points (Swagger UI ili curl) za odabranu test lokaciju.
 """
 
 from __future__ import annotations
@@ -34,6 +34,10 @@ class _FakeResponse:
         return self._payload
 
 
+# Phase 9: namjerno miješa sve tri tačkaste kategorije (peak/settlement/
+# viewpoint) u jednom odgovoru -- provjerava da widened union upit i
+# _infer_category ispravno razlikuju kategorije IZ TAGOVA (Overpass ne
+# prijavljuje koja OR grana je pogodila element).
 _OVERPASS_SAMPLE_RESPONSE = {
     "elements": [
         {
@@ -67,6 +71,20 @@ _OVERPASS_SAMPLE_RESPONSE = {
             # Nema 'ele' tag uopšte.
             "tags": {"natural": "peak", "name": "Bez elevacije"},
         },
+        {
+            "type": "node",
+            "id": 555,
+            "lat": 43.25,
+            "lon": 20.80,
+            "tags": {"place": "town", "name": "Brzeće"},
+        },
+        {
+            "type": "node",
+            "id": 666,
+            "lat": 43.26,
+            "lon": 20.79,
+            "tags": {"tourism": "viewpoint", "name": "Vidikovac Suvo Rudište"},
+        },
     ]
 }
 
@@ -90,6 +108,42 @@ def test_parse_ele_tag(raw, expected) -> None:
     assert _parse_ele_tag(raw) == expected
 
 
+# --- _infer_category (Phase 9) --------------------------------------------
+
+
+def test_infer_category_peak() -> None:
+    from app.services.osm import _infer_category
+
+    assert _infer_category({"natural": "peak"}) == "peak"
+
+
+@pytest.mark.parametrize("place_value", ["city", "town", "village"])
+def test_infer_category_settlement(place_value) -> None:
+    from app.services.osm import _infer_category
+
+    assert _infer_category({"place": place_value}) == "settlement"
+
+
+def test_infer_category_settlement_ignores_other_place_values() -> None:
+    # place=hamlet/suburb/... namjerno NIJE u scope-u (Phase 9 dogovor:
+    # city/town/village) -- mora vratiti None, ne pogrešnu kategoriju.
+    from app.services.osm import _infer_category
+
+    assert _infer_category({"place": "hamlet"}) is None
+
+
+def test_infer_category_viewpoint() -> None:
+    from app.services.osm import _infer_category
+
+    assert _infer_category({"tourism": "viewpoint"}) == "viewpoint"
+
+
+def test_infer_category_none_when_no_match() -> None:
+    from app.services.osm import _infer_category
+
+    assert _infer_category({"amenity": "shelter"}) is None
+
+
 # --- _cache_key ---------------------------------------------------------
 
 
@@ -103,37 +157,47 @@ def test_cache_key_differs_for_different_locations() -> None:
     assert _cache_key(43.0, 20.0, 20.0) != _cache_key(44.0, 20.0, 20.0)
 
 
-# --- _build_overpass_query -----------------------------------------------
+# --- _build_overpass_query (Phase 9: widened union upit) ------------------
 
 
-def test_build_overpass_query_contains_natural_peak_filter() -> None:
+def test_build_overpass_query_contains_all_three_point_filters() -> None:
     query = _build_overpass_query(43.28, 20.81, 20.0)
     assert 'node["natural"="peak"]' in query
+    assert 'node["place"~"^(city|town|village)$"]' in query
+    assert 'node["tourism"="viewpoint"]' in query
     assert "around:20000" in query  # 20 km -> 20000 m
 
 
-# --- OverpassService.fetch_peaks_in_radius -------------------------------
+# --- OverpassService.fetch_point_features_in_radius -----------------------
 
 
-def test_fetch_peaks_in_radius_parses_response(monkeypatch) -> None:
+def test_fetch_point_features_in_radius_parses_response(monkeypatch) -> None:
     async def fake_post(self, url, data=None, **kwargs):
         return _FakeResponse(200, _OVERPASS_SAMPLE_RESPONSE)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     service = OverpassService(_fake_settings())
-    peaks = asyncio.run(service.fetch_peaks_in_radius(43.28, 20.81, 20.0))
+    features = asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
 
-    assert len(peaks) == 4
-    assert peaks[0].osm_id == 111
-    assert peaks[0].name == "Pančićev vrh"
-    assert peaks[0].ele_m == 2017.0
-    assert peaks[1].name is None
-    assert peaks[2].ele_m is None  # negativan ele odbačen
-    assert peaks[3].ele_m is None  # nema ele tag
+    assert len(features) == 6
+    assert features[0].osm_id == 111
+    assert features[0].name == "Pančićev vrh"
+    assert features[0].ele_m == 2017.0
+    assert features[0].category == "peak"
+    assert features[1].name is None
+    assert features[2].ele_m is None  # negativan ele odbačen
+    assert features[3].ele_m is None  # nema ele tag
+
+    settlement = next(f for f in features if f.osm_id == 555)
+    assert settlement.category == "settlement"
+    assert settlement.name == "Brzeće"
+
+    viewpoint = next(f for f in features if f.osm_id == 666)
+    assert viewpoint.category == "viewpoint"
 
 
-def test_fetch_peaks_in_radius_uses_cache(monkeypatch) -> None:
+def test_fetch_point_features_in_radius_uses_cache(monkeypatch) -> None:
     call_count = 0
 
     async def fake_post(self, url, data=None, **kwargs):
@@ -146,15 +210,15 @@ def test_fetch_peaks_in_radius_uses_cache(monkeypatch) -> None:
     service = OverpassService(_fake_settings())
 
     async def _run_twice():
-        await service.fetch_peaks_in_radius(43.28, 20.81, 20.0)
-        await service.fetch_peaks_in_radius(43.28, 20.81, 20.0)
+        await service.fetch_point_features_in_radius(43.28, 20.81, 20.0)
+        await service.fetch_point_features_in_radius(43.28, 20.81, 20.0)
 
     asyncio.run(_run_twice())
 
     assert call_count == 1  # drugi poziv mora pogoditi keš, ne mrežu
 
 
-def test_fetch_peaks_in_radius_sends_identifying_user_agent(monkeypatch) -> None:
+def test_fetch_point_features_in_radius_sends_identifying_user_agent(monkeypatch) -> None:
     """Overpass API vraća 406 bez identifikacionog User-Agent header-a
     (potvrđeno protiv zvaničnog Overpass-API GitHub issue-a i OSM community
     foruma, 2026) -- ovaj test brani protiv regresije te ispravke."""
@@ -167,21 +231,74 @@ def test_fetch_peaks_in_radius_sends_identifying_user_agent(monkeypatch) -> None
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     service = OverpassService(_fake_settings())
-    asyncio.run(service.fetch_peaks_in_radius(43.28, 20.81, 20.0))
+    asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
 
     assert "User-Agent" in captured_headers
     assert "gis-landscape-mvp" in captured_headers["User-Agent"].lower()
 
 
-def test_fetch_peaks_in_radius_raises_overpass_error_on_bad_status(monkeypatch) -> None:
+def test_fetch_point_features_in_radius_raises_overpass_error_on_bad_status(monkeypatch) -> None:
     async def fake_post(self, url, data=None, **kwargs):
         return _FakeResponse(504, text="Gateway Timeout")
 
+    async def instant_sleep(seconds):
+        return None
+
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(asyncio, "sleep", instant_sleep)
 
     service = OverpassService(_fake_settings())
     with pytest.raises(OverpassError):
-        asyncio.run(service.fetch_peaks_in_radius(43.28, 20.81, 20.0))
+        asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
+
+
+def test_fetch_point_features_in_radius_retries_transient_error_then_succeeds(monkeypatch) -> None:
+    """504 je tranzitoran (vidi _TRANSIENT_STATUS_CODES) -- servis mora
+    pokušati ponovo umjesto da odmah odustane (empirijski potvrđeno u Phase
+    5/8: ručni retry skoro uvijek uspije)."""
+    call_count = 0
+
+    async def flaky_then_ok_post(self, url, data=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            return _FakeResponse(504, text="Gateway Timeout")
+        return _FakeResponse(200, _OVERPASS_SAMPLE_RESPONSE)
+
+    async def instant_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", flaky_then_ok_post)
+    monkeypatch.setattr(asyncio, "sleep", instant_sleep)
+
+    service = OverpassService(_fake_settings())
+    features = asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
+
+    assert call_count == 3  # 2 neuspjela + 1 uspješan, u granicama overpass_max_retries=2
+    assert len(features) == 6
+
+
+def test_fetch_point_features_in_radius_does_not_retry_permanent_error(monkeypatch) -> None:
+    """400 nije u _TRANSIENT_STATUS_CODES -- retry ne bi pomogao, pa se
+    odmah odustaje bez čekanja/ponovnih pokušaja."""
+    call_count = 0
+
+    async def fake_post(self, url, data=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _FakeResponse(400, text="Bad Request")
+
+    async def sleep_that_must_not_be_called(seconds):
+        raise AssertionError("asyncio.sleep ne smije biti pozvan za trajnu grešku")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(asyncio, "sleep", sleep_that_must_not_be_called)
+
+    service = OverpassService(_fake_settings())
+    with pytest.raises(OverpassError):
+        asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
+
+    assert call_count == 1
 
 
 def _fake_settings():
@@ -190,58 +307,70 @@ def _fake_settings():
     return get_settings()
 
 
-# --- GET /api/v1/osm/peaks (endpoint-level) -------------------------------
+# --- GET /api/v1/osm/points (endpoint-level) -------------------------------
 
 
-def test_osm_peaks_endpoint_returns_parsed_peaks(monkeypatch) -> None:
+def test_osm_points_endpoint_returns_parsed_features(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
         return [
-            osm_route.OSMPeak(osm_id=111, name="Pančićev vrh", latitude=43.28, longitude=20.81, ele_m=2017.0)
+            osm_route.OSMPointFeature(
+                osm_id=111, name="Pančićev vrh", latitude=43.28, longitude=20.81, ele_m=2017.0, category="peak"
+            )
         ]
 
-    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
 
-    response = client.get("/api/v1/osm/peaks", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
+    response = client.get("/api/v1/osm/points", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
 
     assert response.status_code == 200
     body = response.json()
     assert len(body) == 1
     assert body[0]["osm_id"] == 111
     assert body[0]["name"] == "Pančićev vrh"
+    assert body[0]["category"] == "peak"
 
 
-def test_osm_peaks_endpoint_rejects_invalid_radius() -> None:
-    response = client.get("/api/v1/osm/peaks", params={"lat": 43.28, "lon": 20.81, "radius_km": 999.0})
+def test_osm_points_endpoint_rejects_invalid_radius() -> None:
+    response = client.get("/api/v1/osm/points", params={"lat": 43.28, "lon": 20.81, "radius_km": 999.0})
     assert response.status_code == 422
 
 
-def test_osm_peaks_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
+def test_osm_points_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
         raise OverpassError("Overpass API nedostupan: simulacija za test")
 
-    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
 
-    response = client.get("/api/v1/osm/peaks", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
+    response = client.get("/api/v1/osm/points", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
     assert response.status_code == 503
 
 
-# --- GET /api/v1/osm/candidates (Phase 5, endpoint-level) -----------------
+# --- GET /api/v1/osm/point-candidates (Phase 5/9, endpoint-level) ---------
 
 
-def test_osm_candidates_endpoint_filters_and_reports_debug_counts(monkeypatch) -> None:
+def test_osm_point_candidates_endpoint_filters_and_reports_debug_counts(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
-        # Jedan peak sjeverno (~22 km, unutar radius=50 I unutar uskog FOV
-        # oko heading=0), jedan istočno (~22 km, unutar radius=50 ali VAN
-        # tog FOV) -- provjerava i filter i debug brojeve.
+        # Jedan feature sjeverno (~22 km, unutar radius=50 I unutar uskog
+        # FOV oko heading=0), jedan istočno (~22 km, unutar radius=50 ali
+        # VAN tog FOV) -- provjerava i filter i debug brojeve.
         return [
-            osm_route.OSMPeak(osm_id=1, name="North", latitude=latitude + 0.2, longitude=longitude, ele_m=2000.0),
-            osm_route.OSMPeak(osm_id=2, name="East", latitude=latitude, longitude=longitude + 0.2, ele_m=1800.0),
+            osm_route.OSMPointFeature(
+                osm_id=1, name="North", latitude=latitude + 0.2, longitude=longitude, ele_m=2000.0, category="peak"
+            ),
+            osm_route.OSMPointFeature(
+                osm_id=2,
+                name="East",
+                latitude=latitude,
+                longitude=longitude + 0.2,
+                ele_m=1800.0,
+                category="settlement",
+            ),
         ]
 
-    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get(
-        "/api/v1/osm/candidates",
+        "/api/v1/osm/point-candidates",
         params={"lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "fov_deg": 40.0, "radius_km": 50.0},
     )
 
@@ -256,14 +385,14 @@ def test_osm_candidates_endpoint_filters_and_reports_debug_counts(monkeypatch) -
     }
 
 
-def test_osm_candidates_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
+def test_osm_point_candidates_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
         raise OverpassError("Overpass API nedostupan: simulacija za test")
 
-    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get(
-        "/api/v1/osm/candidates",
+        "/api/v1/osm/point-candidates",
         params={"lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "fov_deg": 40.0, "radius_km": 50.0},
     )
     assert response.status_code == 503

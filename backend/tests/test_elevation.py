@@ -171,6 +171,103 @@ def test_get_elevation_returns_none_when_download_fails(tmp_path, monkeypatch) -
     assert result is None
 
 
+# --- ElevationService.get_elevation_profile (Phase 8) ----------------------
+
+
+def test_get_elevation_profile_single_tile_opens_dataset_once(tmp_path, monkeypatch) -> None:
+    import app.services.elevation as elevation_module
+
+    cache_dir = tmp_path / "cache"
+    tile_name = _tile_name(*_INSIDE_POINT[::-1])
+    _write_fixture_tile(cache_dir / f"{tile_name}.tif")
+    monkeypatch.setattr(elevation_module, "_download_tile", _fail_if_called)
+
+    open_calls: list[Path] = []
+    real_open = rasterio.open
+
+    def counting_open(path, *args, **kwargs):
+        open_calls.append(Path(path))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(elevation_module.rasterio, "open", counting_open)
+
+    service = ElevationService(_fake_settings(cache_dir))
+    lon, lat = _INSIDE_POINT
+    # Tri različite tačke, ali sve u istom tile-u -- treba tačno JEDAN open.
+    points = [(lat, lon), (lat + 0.001, lon), (lat, lon + 0.001)]
+    results = service.get_elevation_profile(points)
+
+    assert len(results) == 3
+    assert all(r == pytest.approx(_FIXTURE_VALUE_M) for r in results)
+    assert len(open_calls) == 1
+
+
+def test_get_elevation_profile_preserves_order_across_tiles(tmp_path, monkeypatch) -> None:
+    import app.services.elevation as elevation_module
+
+    cache_dir = tmp_path / "cache"
+    # Dvije različite tačke u dva različita (susjedna) tile-a, sa različitim
+    # poznatim vrijednostima, da provjerimo da se redoslijed rezultata ne
+    # pomiješa kad se grupiše po tile-u. Obje tačke moraju pasti UNUTAR
+    # geometrijskog opsega koji fixture stvarno pokriva (0.1x0.1 stepeni u
+    # sjeverozapadnom uglu tile-a -- vidi _write_fixture_tile/_INSIDE_POINT).
+    point_a = (43.945, 20.055)  # tile N43_E020 -- isti kao _INSIDE_POINT
+    point_b = (44.945, 20.055)  # tile N44_E020 -- analogna tačka, 1 stepen sjevernije
+
+    tile_a = _tile_name(*point_a)
+    tile_b = _tile_name(*point_b)
+    assert tile_a != tile_b
+
+    fixture_a = cache_dir / f"{tile_a}.tif"
+    fixture_b = cache_dir / f"{tile_b}.tif"
+    _write_fixture_tile(fixture_a)  # origin (20.0, 44.0) -- pokriva point_a
+
+    # Za tile_b (N44) treba fixture čiji origin odgovara toj oblasti -- pošto
+    # _write_fixture_tile ne parametrizuje origin po tile imenu, ručno pravimo
+    # drugi fixture pomjeren za 1 stepen sjevernije da pokrije point_b.
+    from rasterio.transform import from_origin
+
+    data_b = np.full((_FIXTURE_SIZE_PX, _FIXTURE_SIZE_PX), 999.0, dtype="float32")
+    transform_b = from_origin(20.0, 45.0, _FIXTURE_RES_DEG, _FIXTURE_RES_DEG)
+    fixture_b.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(
+        fixture_b,
+        "w",
+        driver="GTiff",
+        height=_FIXTURE_SIZE_PX,
+        width=_FIXTURE_SIZE_PX,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=transform_b,
+        nodata=_FIXTURE_NODATA,
+    ) as dataset:
+        dataset.write(data_b, 1)
+
+    monkeypatch.setattr(elevation_module, "_download_tile", _fail_if_called)
+
+    service = ElevationService(_fake_settings(cache_dir))
+    # Redoslijed namjerno B pa A, da provjerimo da se ne oslanja na redoslijed obrade tile-ova.
+    results = service.get_elevation_profile([point_b, point_a])
+
+    assert results[0] == pytest.approx(999.0)  # point_b -> tile_b
+    assert results[1] == pytest.approx(_FIXTURE_VALUE_M)  # point_a -> tile_a
+
+
+def test_get_elevation_profile_returns_none_for_tile_that_fails_to_download(tmp_path, monkeypatch) -> None:
+    import app.services.elevation as elevation_module
+
+    def fake_download_tile(url, dest_path, timeout_s):
+        raise ElevationError("simuliran mrežni problem")
+
+    monkeypatch.setattr(elevation_module, "_download_tile", fake_download_tile)
+
+    service = ElevationService(_fake_settings(tmp_path / "cache"))
+    results = service.get_elevation_profile([_INSIDE_POINT[::-1]])
+
+    assert results == [None]
+
+
 # --- GET /api/v1/elevation/lookup (endpoint-level) -------------------------
 
 

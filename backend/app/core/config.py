@@ -72,6 +72,15 @@ class Settings(BaseSettings):
 
     # --- Eksterni servisi ---
     overpass_api_url: str = "https://overpass-api.de/api/interpreter"
+    # Javne Overpass instance povremeno vrate 429/502/503/504 pod
+    # opterećenjem (potvrđeno empirijski u Phase 5 i Phase 8 -- vidi
+    # docs/architecture-feasibility-review.md, sekcija 14, rizik "Overpass
+    # reliability", i Phase 8 status). Ručni retry je u testiranju skoro
+    # uvijek uspijevao iz drugog pokušaja, pa je automatski retry
+    # opravdana, jeftina zaštita -- bitno za LinkedIn demo (brief, tačka
+    # 50) da tranzitorni Overpass hiccup ne pokvari snimanje uživo.
+    overpass_max_retries: int = 2
+    overpass_retry_backoff_s: float = 2.0
     copernicus_dem_bucket: str = "copernicus-dem-30m"
 
     # DEM tile cache -- "download-once, cache-on-disk" pristup (Phase 6;
@@ -80,6 +89,44 @@ class Settings(BaseSettings):
     # rezolvira u odnosu na cwd procesa (backend/, isto kao .env).
     dem_cache_dir: str = "app/data/dem_cache"
     dem_download_timeout_s: float = 60.0
+
+    # --- Target elevation discrepancy (Phase 8) ---
+    # Sekcija 9 arhitekture pominje "npr. 50 m" kao ilustraciju praga na kom
+    # OSM `ele` i DEM vrijednost za isti vrh vrijede zabilježiti kao
+    # neslaganje (DEM ima tendenciju da blago potcijeni pravi vrh zbog 30 m
+    # usrednjavanja piksela). Usvojeno kao stvaran prag u Phase 8 -- OSM
+    # `ele` ostaje prioritet čak i kad je razlika veća (sekcija 9, korak 8),
+    # razlika se samo bilježi kao debug info (`elevation_discrepancy_m`),
+    # nikad ne mijenja koji izvor se koristi.
+    target_elevation_discrepancy_threshold_m: float = 50.0
+
+    # --- Area feature sampling (rijeke/vodene povrsine/parkovi/nacionalni
+    # parkovi -- Phase 9) ---
+    # Za razliku od tackastih feature-a (Phase 4-8, jedan target = jedna
+    # line-of-sight provjera), feature sa geometrijom (way/relation)
+    # zahtijeva VISE provjera duz presjecenog dijela geometrije unutar
+    # sektora ("mini-viewshed po feature-u" -- eksplicitno odabrana opcija,
+    # vidi docs/architecture-feasibility-review.md, Phase 9 status). Da bi
+    # ukupan trosak (N feature-a x M sample-ova x line-of-sight profil po
+    # sample-u) ostao razuman, sample spacing ovdje je namjerno KRUPNIJI od
+    # `line_of_sight_sample_spacing_m` (30 m, DEM rezolucija za profil
+    # IZMEDU observera i JEDNOG targeta) -- ovdje su sample tacke SAME
+    # targeti, ne teren izmedju, pa gusce sample-ovanje samo umnozava broj
+    # punih line-of-sight poziva bez proporcionalne koristi za MVP demo
+    # svrhu.
+    area_feature_sample_spacing_m: float = 200.0
+    # Gornja granica broja sample tacaka po jednom feature-u (npr. vrlo
+    # duga rijeka ili veliki nacionalni park unutar radijusa) -- sprecava
+    # da jedan ogroman poligon/linija sam po sebi eksplodira broj
+    # DEM/line-of-sight poziva. Ako presjecena geometrija ima vise
+    # potencijalnih sample tacaka nego ovaj limit, ravnomjerno se
+    # prorijede (ne samo prvih N -- vidi area_visibility._cap_samples).
+    area_feature_max_samples_per_feature: int = 12
+    # Gornja granica broja area feature-a (ukupno, svih kategorija) koji
+    # se uopste obraduju kroz sampling/visibility pipeline po zahtjevu --
+    # isti princip kao `candidate_ranking_max_n` za tackaste feature-e,
+    # rangirano po `closest_distance_km` (najblizi prvo).
+    area_feature_max_results: int = 15
 
     # --- ArcGIS auth (Phase 1) ---
     # Organizacija korisnika ima isključeno izdavanje plain "API key"

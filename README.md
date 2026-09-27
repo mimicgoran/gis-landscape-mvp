@@ -79,7 +79,25 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] 15 novih testova (granični slučajevi pragova, oba nova pravila, sastavljanje modela, endpoint). Ukupno 77 backend testova, svi prolaze.
 - [x] Ručno potvrđeno za Pančićev vrh -- `observer_elevation_m` = DEM + eye height, `confidence: "high"` i sa i bez GPS accuracy podatka.
 
-Sljedeća faza: **Phase 8 — line-of-sight engine** (geodesic observer→target linija, DEM sampling, visible/blocked odluka).
+## Trenutni status (Phase 8 + automatski Overpass retry)
+
+- [x] `visibility.py` -- `check_visibility()` (geodesic sample tačke duž linije, batch DEM sampling, granični slučaj: jednak ugao = vidljivo ne blokirano, "DEM gap" se ne tretira kao blokada) i `resolve_target_elevation()` (OSM `ele` prioritet, DEM fallback, razlika > 50 m se samo bilježi).
+- [x] Dev endpoint `GET /api/v1/analyze/preview` -- pun pipeline (observer + location quality -> OSM kandidati -> DEM -> line-of-sight).
+- [x] 96 backend testova prolazi; ručno potvrđeno protiv prave Kopaonik lokacije (plauzibilna podjela visible/blocked, nakon jednog tranzitornog Overpass 503 riješenog ručnim retry-jem).
+- [x] Automatski Overpass retry dodat kao reakcija na taj 503 (`overpass_max_retries=2`, `overpass_retry_backoff_s=2.0`) -- kod napisan i testovi prošireni, **korisnička `pytest` potvrda još nije urađena**.
+
+## Trenutni status (Phase 9 -- proširenje scope-a: rijeke/vodene površine/parkovi/nacionalni parkovi)
+
+Nakon Phase 8, eksplicitno je odbačen "samo vrhovi" scope -- korisnik pita i "koja je rijeka/koje je mjesto/koji je park ispred mene". Puno obrazloženje (uklj. dva kruga korisničke korekcije protiv centroid-only pristupa) u `docs/architecture-feasibility-review.md`, sekcija 27.
+
+- [x] Tačkasti feature-i prošireni: `place=city|town|village` i `tourism=viewpoint`, pored `natural=peak` (isti pipeline, novo `category` polje). Preimenovano: `OSMPeak`→`OSMPointFeature`, dev endpointi `/osm/points`, `/osm/point-candidates`.
+- [x] NOVI area-feature pipeline (`osm_areas.py`, `area_visibility.py`): rijeke/vodene površine/parkovi/nacionalni parkovi sa STVARNOM geometrijom (way -> LineString/Polygon, relation -> Polygon preko `shapely.ops.polygonize()`), geometrijski intersect sa viewing-sector poligonom (`geometry.build_sector_polygon()`), i "mini-viewshed" sampling (više sample tačaka duž presječenog dijela, svaka provjerena preko postojećeg `check_visibility()`, agregirano u `visible_fraction`).
+- [x] Novi dev endpoint `GET /api/v1/osm/areas` (sirova geometrija, GeoJSON-oblik) i novo `"area_features"` polje u `/api/v1/analyze/preview`.
+- [x] Novi/prošireni testovi: `test_osm_areas.py`, `test_area_visibility.py`, plus izmjene u `test_geometry.py`/`test_osm.py`/`test_analyze.py`.
+- [ ] **VAŽNO -- neprovjerena pretpostavka:** cijeli relation→polygon pipeline pretpostavlja da Overpass `out geom;` uključuje punu geometriju relacijskih članova direktno u odgovoru (dokumentovano, standardno ponašanje, ali NIJE moglo biti empirijski testirano iz razvojnog okruženja -- vidi sekciju 27). Prva stvar za ručnu provjeru preko `/api/v1/osm/areas`.
+- [ ] Korisnička `pytest` i ručna Swagger verifikacija još nisu urađene za Phase 9 kod -- commit/push čeka to (vidi sekciju 26-27 arhitekture).
+
+Sljedeća faza (nakon verifikacije Phase 8 retry-ja i Phase 9): **Phase 10+ -- mobile geolocation, phone altitude diagnostics, device orientation/compass** (frontend integracija stvarnih senzora, nakon što je backend pipeline dokazan preko manual/dev endpointa na širem setu geografskih feature-a).
 
 ## Licenca podataka
 
