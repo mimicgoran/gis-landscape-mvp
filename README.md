@@ -31,7 +31,14 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] Mapa vizuelno potvrđena, bez console grešaka (ArcGIS `MapView` sa basemap-om se učitava, centrirana na Srbiju). Usput otkriven i ispravljen bug: `$arcgis.import()` u SDK 5.1 vraća module direktno, ne umotane u `.default` — vidi `docs/architecture-feasibility-review.md`, sekcija 19.
 - [ ] AGOL credit dashboard provjeren (dashboard ima do 24h kašnjenja — provjerava se naknadno, ne blokira dalji razvoj).
 
-Sljedeća faza: **Phase 2 — manual observer** (klik na mapu postavlja observer marker).
+## Trenutni status (Phase 2)
+
+- [x] Klik na mapu postavlja/pomjera observer marker (`observerInteraction.js`), bez gomilanja markera na uzastopne klikove.
+- [x] Minimalan debug panel prikazuje lat/lon postavljenog observera.
+- [x] Backend `ObserverInput` Pydantic model (lat/lon obavezni, GPS/phone dijagnostika opciona za kasnije faze) sa unit testovima za granice koordinata.
+- [x] Svi testovi prolaze lokalno (11/11) i na CI-ju.
+
+Sljedeća faza: **Phase 3 — heading + FOV + viewing sector** (slajderi za heading/FOV/radius, geometrijski sektor crtan na mapi, backend bearing/angular-diff logika).
 
 ## Licenca podataka
 
