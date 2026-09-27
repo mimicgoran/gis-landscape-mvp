@@ -595,6 +595,49 @@ Jedina stavka koju bih preispitao je **automatski compass (device orientation) k
 
 ---
 
+## 19. Phase 1 — status i naučene lekcije (27.09.2026)
+
+Phase 1 (project setup + ArcGIS mapa) je implementiran i end-to-end verifikovan preko GitHub Actions CI (ne samo `py_compile`).
+
+- **Repo:** https://github.com/mimicgoran/gis-landscape-mvp — trenutno **public**. Napomena: originalni zahtjev tokom rada je bio da repo ostane privatan dok se eksplicitno ne odobri javnost; vlasnik projekta je tokom Phase 1 rada svjesno prebacio repo na public (dva puta, uz eksplicitnu potvrdu drugi put) — ovo je zabilježeno ovdje radi transparentnosti, ne kao propust. Ako se odluka promijeni, vidljivost se mijenja iz repo Settings na GitHub-u.
+- **CI:** `.github/workflows/backend-ci.yml` — na push/PR instalira `backend/requirements.txt` i pokreće `pytest tests/ -v` na GitHub-hosted Ubuntu runneru. Prvi run nakon initial push-a je prošao zeleno (svi testovi, uklj. `test_health.py` i `test_arcgis_token.py`).
+- **`.env` nikad nije stigao u git** — potvrđeno i lokalnim `git status`/`git grep` pregledom prije push-a i naknadnim pregledom sadržaja repo-a preko GitHub API-ja (samo `.env.example` je prisutan).
+- **Otkriveno ograničenje konektora:** GitHub MCP konektor korišten u ovoj Claude sesiji (`api.githubcopilot.com/mcp`, GitHub App "Claude Github MCP Connector") ima samo **read-only pristup javnim repo-ima** — nema instalaciju (`Installed GitHub Apps`) ni na jednom repo-u korisnika, pa write akcije (create_repository, push_files, create_or_update_file) dosljedno vraćaju `403 Resource not accessible by integration`, a read na privatnim repo-ima vraća `404` bez obzira na disconnect/reconnect ili promjenu vidljivosti repo-a. Zbog toga je initial commit/push za Phase 1 urađen lokalno: `git init`/`add`/`commit` preko veze sa korisnikovim računarom (device bridge), a stvarni `git push` je pokrenuo korisnik ručno (jedna komanda, sa svojim git kredencijalima) jer Claude sesija nema pristup korisnikovim GitHub kredencijalima. Ovo ograničenje vrijedi imati na umu za sve buduće faze: ili push ostaje ručni korak (kratak, par git komandi), ili se repo drži public da bi konektor mogao makar da čita stanje radi verifikacije.
+- **GitHub Actions log čitanje:** nijedan dostupan alat u ovoj sesiji ne čita status/log GitHub Actions run-ova direktno — status se provjerava ručno na GitHub Actions tabu, ili se failed step output nalijepi nazad u chat radi popravke.
+- **Vizuelna potvrda mape — uspješna, uz jedan pronađen i ispravljen bug:** lokalno pokretanje (`uvicorn` + `python -m http.server` za frontend) potvrdilo je da `/api/v1/arcgis-token` vraća pravi ArcGIS access token (empirijska potvrda cijele OAuth App authentication razmjene iz sekcije 4). Prvi pokušaj učitavanja mape je pao sa `TypeError: Cannot set properties of undefined (setting 'apiKey')` u `mapSetup.js`. Uzrok: kod je svuda pisao `esriConfig.default.apiKey`, `new GraphicsLayer.default(...)`, `new Map.default(...)`, itd. — pogrešna pretpostavka da `$arcgis.import()` vraća ES-module namespace objekat sa `.default` svojstvom. Provjereno protiv zvanične Esri dokumentacije (developers.arcgis.com, primjeri za CDN/ES-modules pristup): `$arcgis.import()` u SDK 5.1 vraća modul (klasu ili config objekat) **direktno** — ispravan obrazac je `const config = await $arcgis.import("@arcgis/core/config.js"); config.apiKey = "...";`, ne `config.default.apiKey`. Svi `.default` pozivi u `mapSetup.js` su uklonjeni; mapa se nakon toga učitava bez grešaka, centrirana na Srbiju. Sporedna napomena tokom debugovanja: browser (Chrome) je agresivno keširao stariju verziju `mapSetup.js` preko običnog refresh-a — Incognito prozor ili DevTools "Disable cache" je bio potreban da se vidi ažurirana verzija tokom razvoja preko `python -m http.server` (bez build/dev-server alata koji bi automatski invalidirao keš).
+- **AGOL credit dashboard:** dashboard ima kašnjenje do 24h u prikazu potrošnje, pa provjera trenutnog basemap tile troška (sekcija 4, pretpostavka da je unutar besplatne zone) nije mogla biti odmah empirijski potvrđena — provjerava se naknadno, ne blokira dalji razvoj.
+
+Phase 1 je zvanično završen (svi koraci iz backloga, sekcija 13, red 1, potvrđeni). Sljedeći korak: **Phase 2 — manual observer** (klik na mapu postavlja observer marker, backend `ObserverInput` model).
+
+---
+
+## 20. Phase 2 — status i naučene lekcije (27.09.2026)
+
+Phase 2 (manual observer) je implementiran i verifikovan i na frontendu i na backendu.
+
+- Klik na mapu (`observerInteraction.js`) postavlja/pomjera observer marker na `observerLayer`; prethodni marker se briše (`observerLayer.removeAll()`) prije dodavanja novog, tako da nikad ne postoji više od jednog observer markera istovremeno.
+- Backend `ObserverInput` Pydantic model (`app/models/observer.py`): `latitude`/`longitude` obavezni sa range validacijom (-90/90, -180/180), `horizontal_accuracy_m`/`phone_altitude_m`/`phone_altitude_accuracy_m` opcioni (nullable) — pripremljeno za Phase 7/11 (location quality, phone altitude diagnostics), ne koriste se još.
+- Minimalan debug panel (`debugPanel.js`) prikazuje lat/lon postavljenog observera — prvi korak ka punom debug/location-quality panelu iz Phase 11.
+- Testovi: 7 novih unit testova (`test_observer.py`), svi prolaze lokalno i na CI-ju.
+- Vizuelno potvrđeno od strane vlasnika projekta: marker se pojavljuje na tačnoj kliknutoj lokaciji, koordinate se ispisuju u debug panelu, markeri se ne gomilaju na uzastopne klikove.
+
+Phase 2 je zvanično završen. Sljedeći korak: **Phase 3 — heading + FOV + viewing sector**.
+
+---
+
+## 21. Phase 3 — status i naučene lekcije (27.09.2026)
+
+Phase 3 (heading + FOV + viewing sector) je implementiran i verifikovan i na backendu (unit testovi) i vizuelno na frontendu.
+
+- Backend `geometry.py` (WGS84 geodesic preko `pyproj.Geod`, ne haversine/Euclidean): `geodesic_distance_km`, `initial_bearing_deg`, `angular_difference_deg`, `is_within_sector`. 13 novih unit testova (`test_geometry.py`), uključujući eksplicitni wrap-around test iz brifa (heading 359° / feature 1° → razlika 2°, ne 358°) i granični slučaj sektora (`diff == fov/2` mora biti uključeno, `<=` ne `<`). Cijeli backend test suite sada broji 25 testova, svi prolaze lokalno (`pytest tests/ -v`).
+- Frontend: tri range slajdera (Heading 0–360°, FOV 20–90° default 50°, Radius 5–30 km default 20 km — pragovi obrazloženi u sekciji 8) u `controlsPanel.js`; sektor se crta i uživo ažurira preko `sectorGeometry.js` (čista JS sferna aproksimacija za preview, bez network round-trip-a po pokretu slajdera — izvor istine i dalje ostaje backend) i `sectorRenderer.js` (ArcGIS `Polygon`/`Graphic`).
+- **Pronađen i ispravljen bug:** sektor se nije crtao na mapi iako je observer bio ispravno postavljen (marker se vidio). Uzrok: `Polygon` konstruktor u `sectorRenderer.js` je dobijao `rings` (sirovi WGS84 lon/lat parovi iz `sectorGeometry.js`) uz `spatialReference: view.spatialReference` (Web Mercator, jedinica metri). Za razliku od `Point`-a, čija `longitude`/`latitude` convenience polja uvijek pretpostavljaju WGS84 stepene i sama rade konverziju u ciljni spatialReference (zbog toga je Phase 2 observer marker sa istim obrascem radio ispravno), `Polygon.rings` se uzima doslovno kao x/y brojevi u navedenom spatialReference-u — stepeni su tako tretirani kao metri, i poligon je efektivno nestajao odmah do ishodišta Web Mercator projekcije, daleko od Srbije i van vidokruga mape. Ispravka: `spatialReference: { wkid: 4326 }` na `Polygon` konstruktoru — ArcGIS SDK automatski reprojektuje graphics između WGS84 (4326) i Web Mercator-a pri renderovanju, bez ijednog dodatnog importa. Pouka za ostatak projekta: svaka buduća geometrija konstruisana iz sirovih lon/lat parova (npr. Phase 9 visible/blocked simboli, budući elevation-profile overlay) mora eksplicitno deklarisati `{ wkid: 4326 }`, nikad `view.spatialReference`.
+- Vizuelno potvrđeno od strane vlasnika projekta nakon ispravke: sektor se odmah pojavljuje na klik na mapu (poluprovidan plavi poligon), uživo se ažurira na pomjeranje bilo kog slajdera, bez gomilanja starih poligona.
+
+Phase 3 je zvanično završen. Sljedeći korak: **Phase 4 — OSM `natural=peak` integracija** (Overpass API upit, cache, endpoint koji vraća sirove peakove u radijusu).
+
+---
+
 ## Sljedeći korak
 
 Dokument je odobren (sekcija 0). Implementacija počinje sa PHASE 1 (project setup + ArcGIS mapa) — napredak i odluke iz svake faze se dodaju u ovaj dokument ili u prateće fajlove u `docs/`.

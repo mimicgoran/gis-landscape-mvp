@@ -38,7 +38,15 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] Backend `ObserverInput` Pydantic model (lat/lon obavezni, GPS/phone dijagnostika opciona za kasnije faze) sa unit testovima za granice koordinata.
 - [x] Svi testovi prolaze lokalno (11/11) i na CI-ju.
 
-Sljedeća faza: **Phase 3 — heading + FOV + viewing sector** (slajderi za heading/FOV/radius, geometrijski sektor crtan na mapi, backend bearing/angular-diff logika).
+## Trenutni status (Phase 3)
+
+- [x] Slajderi za heading (0–360°), FOV (20–90°, default 50°) i radius (5–30 km, default 20 km) u `controlsPanel.js`.
+- [x] Backend `geometry.py` — `geodesic_distance_km`, `initial_bearing_deg`, `angular_difference_deg`, `is_within_sector` preko `pyproj`/WGS84 elipsoida (ne haversine/Euclidean).
+- [x] Viewing sector se crta kao poluprovidan poligon i uživo ažurira na svaku promjenu observera ili slajdera (`sectorGeometry.js` + `sectorRenderer.js`).
+- [x] 13 novih unit testova (`test_geometry.py`), uključujući eksplicitan wrap-around test (heading 359° + feature 1°) i granični slučaj sektora. Svi testovi prolaze (25/25, `pytest tests/ -v`).
+- [x] Pronađen i ispravljen bug: sektor se nije crtao jer je `Polygon.rings` (sirovi WGS84 lon/lat) bio deklarisan sa `spatialReference: view.spatialReference` (Web Mercator) umjesto `{ wkid: 4326 }` — detalji u `docs/architecture-feasibility-review.md`, sekcija 21.
+
+Sljedeća faza: **Phase 4 — OSM `natural=peak` integracija** (Overpass API upit, cache, endpoint koji vraća sirove peakove u radijusu).
 
 ## Licenca podataka
 

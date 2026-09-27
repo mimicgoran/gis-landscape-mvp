@@ -1,10 +1,11 @@
 /**
  * Bootstrap frontend aplikacije.
  *
- * Phase 2 scope: mapa (Phase 1) + manual observer (klik na mapu postavlja
- * marker) + minimalan debug panel sa koordinatama. Kontrole (heading/FOV/
- * radius), rezultati i puni debug panel dolaze u kasnijim fazama (vidi MVP
- * backlog u docs/architecture-feasibility-review.md, sekcija 13).
+ * Phase 3 scope: mapa (Phase 1) + manual observer (Phase 2) + heading/FOV/
+ * radius kontrole i viewing sector koji se crta i ažurira uživo na svaku
+ * promjenu (Phase 3). Rezultati (Phase 9) i puni debug panel (Phase 11)
+ * dolaze kasnije — vidi MVP backlog u
+ * docs/architecture-feasibility-review.md, sekcija 13.
  *
  * Mapa zavisi od backenda (mora biti pokrenut i imati ARCGIS_CLIENT_ID/
  * SECRET podešene u .env) jer ArcGIS access token dolazi odatle — vidi
@@ -13,19 +14,32 @@
 
 import { createMapView } from "./map/mapSetup.js";
 import { setupObserverInteraction } from "./map/observerInteraction.js";
+import { renderSector } from "./map/sectorRenderer.js";
+import { initControlsPanel } from "./ui/controlsPanel.js";
 import { initDebugPanel } from "./ui/debugPanel.js";
 
 async function bootstrap() {
   const statusBanner = document.getElementById("statusBanner");
 
   try {
-    const { view, observerLayer } = await createMapView("viewDiv");
+    const { view, observerLayer, sectorLayer } = await createMapView("viewDiv");
     console.info("[main] MapView spreman.", view);
 
     const debugPanel = initDebugPanel();
 
+    // Observer se drži ovdje (ne u kontrolama) jer ga postavlja klik na
+    // mapu, ne slajder — sector renderer treba oba (observer + sector
+    // parametre) na svaku promjenu bilo kog od njih.
+    let currentObserver = null;
+
+    const controls = initControlsPanel((sector) => {
+      renderSector(sectorLayer, view, currentObserver, sector);
+    });
+
     await setupObserverInteraction(view, observerLayer, (observer) => {
+      currentObserver = observer;
       debugPanel.updateObserver(observer);
+      renderSector(sectorLayer, view, currentObserver, controls.getSector());
       console.info("[main] Observer postavljen:", observer);
     });
   } catch (error) {
