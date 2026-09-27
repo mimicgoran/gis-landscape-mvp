@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     overpass_api_url: str = "https://overpass-api.de/api/interpreter"
     copernicus_dem_bucket: str = "copernicus-dem-30m"
 
+    # DEM tile cache -- "download-once, cache-on-disk" pristup (Phase 6;
+    # vidi app/services/elevation.py modul docstring za puno obrazloženje
+    # zašto ne čist GDAL /vsicurl/ streaming). Relativna putanja se
+    # rezolvira u odnosu na cwd procesa (backend/, isto kao .env).
+    dem_cache_dir: str = "app/data/dem_cache"
+    dem_download_timeout_s: float = 60.0
+
     # --- ArcGIS auth (Phase 1) ---
     # Organizacija korisnika ima isključeno izdavanje plain "API key"
     # credentials (admin policy) — dostupne su samo OAuth 2.0 credentials.

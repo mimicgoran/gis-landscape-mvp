@@ -63,7 +63,15 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] 7 novih testova (uklj. wrap-around). Ukupno 49 backend testova, svi prolaze.
 - [x] Empirijski potvrđeno protiv prave Overpass instance za Kopaonik (uz jedan tranzitorni 504 od Overpass-a, riješen retry-jem — poznat, već dokumentovan rizik).
 
-Sljedeća faza: **Phase 6 — DEM integracija** (Copernicus DEM GLO-30 preko `rasterio`).
+## Trenutni status (Phase 6)
+
+- [x] `ElevationService.get_elevation(lat, lon)` u `elevation.py` -- Copernicus DEM GLO-30, "download-once, cache-on-disk" pristup (lokalni disk keš po tile-u umjesto GDAL `/vsicurl/` streaming reada -- razlog: nerešiv `UnicodeDecodeError` bag ugrađen u rasterio-jevu kompajliranu ekstenziju, detalji u `docs/architecture-feasibility-review.md`, sekcija 24).
+- [x] Usput pronađen i ispravljen nezavisan bug: `PROJ_LIB`/PostGIS konflikt na razvojnoj mašini (rasterio je pokupio pogrešnu `proj.db`).
+- [x] Empirijski potvrđena pokrivenost Copernicus GLO-30 Public bucket-a za Kopaonik/Srbiju, i tačnost (DEM 2011.6 m naspram OSM `ele` 2017 m za Pančićev vrh -- razlika u granicama očekivane GLO-30 vertikalne tačnosti).
+- [x] Dev endpoint `GET /api/v1/elevation/lookup?lat=&lon=`.
+- [x] 13 novih testova (naming konvencija za sve hemisfere, cache-hit/download put, nodata handling -- stvarno `rasterio` čitanje se testira protiv pravog malog GeoTIFF fixture-a, samo mrežni download je mock-ovan). Ukupno 62 backend testa, svi prolaze.
+
+Sljedeća faza: **Phase 7 — observer elevation + location quality arhitektura** (DEM + phone altitude fuzija, location quality pragovi).
 
 ## Licenca podataka
 
