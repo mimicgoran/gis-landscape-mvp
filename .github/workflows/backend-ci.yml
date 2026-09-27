@@ -1,0 +1,48 @@
+name: Backend CI
+
+# Zašto ovo postoji: cloud sandbox u kojem je backend pisan nema pristup
+# pypi.org (mrežna politika te sesije), pa `pytest` tamo nije mogao biti
+# pokrenut kao stvarna verifikacija — samo `python -m py_compile` (sintaksa).
+# GitHub-hosted runner ima pun internet pristup, pa ovdje pytest stvarno
+# instalira zavisnosti i izvršava testove. Vidi
+# docs/architecture-feasibility-review.md, sekcija 13/14, za MVP backlog i
+# testing zahtjeve.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v

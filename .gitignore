@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Environment / secrets ---
+.env
+*.env
+!.env.example
+
+# --- Node (ako se ikad doda tooling) ---
+node_modules/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- DEM tile cache (Phase 6) — ne komitovati velike raster fajlove ---
+backend/app/data/dem_cache/
+*.tif
+*.tiff
