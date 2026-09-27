@@ -29,3 +29,18 @@ body {
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+.debug-panel {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #202124;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  max-width: 260px;
+}
