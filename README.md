@@ -46,7 +46,15 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] 13 novih unit testova (`test_geometry.py`), uključujući eksplicitan wrap-around test (heading 359° + feature 1°) i granični slučaj sektora. Svi testovi prolaze (25/25, `pytest tests/ -v`).
 - [x] Pronađen i ispravljen bug: sektor se nije crtao jer je `Polygon.rings` (sirovi WGS84 lon/lat) bio deklarisan sa `spatialReference: view.spatialReference` (Web Mercator) umjesto `{ wkid: 4326 }` — detalji u `docs/architecture-feasibility-review.md`, sekcija 21.
 
-Sljedeća faza: **Phase 4 — OSM `natural=peak` integracija** (Overpass API upit, cache, endpoint koji vraća sirove peakove u radijusu).
+## Trenutni status (Phase 4)
+
+- [x] `osm.py` — Overpass QL upit za `natural=peak`, in-memory TTL keš, defanzivan `ele` tag parser.
+- [x] Privremen dev endpoint `GET /api/v1/osm/peaks` za ručnu verifikaciju (biće obuhvaćen sa `/api/v1/analyze` u Phase 5-9).
+- [x] 12 novih unit testova (mock Overpass odgovor, bez zavisnosti od prave mreže u CI-ju). Ukupno 42 backend testa, svi prolaze.
+- [x] Pronađen i ispravljen bug: Overpass API zahtijeva `User-Agent` header (bez njega vraća `406 Not Acceptable`) — detalji u `docs/architecture-feasibility-review.md`, sekcija 22.
+- [x] Empirijski potvrđena test lokacija (Kopaonik) — stvaran Overpass odgovor sadrži gustu listu imenovanih vrhova (Pančićev vrh, Vučak, Veliki Karaman, ...).
+
+Sljedeća faza: **Phase 5 — distance + bearing + candidate filtering** (povezivanje `geometry.py` sa stvarnim OSM podacima).
 
 ## Licenca podataka
 

@@ -11,7 +11,7 @@ docs/architecture-feasibility-review.md, sekcija 13 — MVP backlog).
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import arcgis_token, health
+from app.api.routes import arcgis_token, health, osm
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -36,6 +36,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(arcgis_token.router, prefix="/api/v1")
+app.include_router(osm.router, prefix="/api/v1")
 
 
 @app.get("/")

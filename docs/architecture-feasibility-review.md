@@ -638,6 +638,19 @@ Phase 3 je zvanično završen. Sljedeći korak: **Phase 4 — OSM `natural=peak`
 
 ---
 
+## 22. Phase 4 — status i naučene lekcije (27.09.2026)
+
+Phase 4 (OSM `natural=peak` integracija) je implementiran i verifikovan i preko mock-ovanih unit testova i preko prave Overpass integracije.
+
+- Backend `osm.py` (`OverpassService`): Overpass QL upit (`node["natural"="peak"](around:radius_m,lat,lon);`) preko `httpx`, in-memory TTL keš (24h, keyed po zaokruženim lat/lon/radius), defanzivan parser za OSM `ele` tag (odbacuje 0/negativne/nenumeričke vrijednosti). Privremen dev endpoint `GET /api/v1/osm/peaks` dodat radi ručne verifikacije prije nego što se poveže u finalni `/api/v1/analyze` (Phase 5-9).
+- 12 novih unit testova (`test_osm.py`), svi sa mock-ovanim Overpass odgovorom (bez zavisnosti od prave mreže u CI-ju — vidi sekciju 14, rizik "Overpass reliability"). Ukupno 42 backend testa, svi prolaze.
+- **Pronađen i ispravljen bug (empirijski, kroz ručno testiranje):** prvi poziv protiv prave `overpass-api.de` instance je vratio `406 Not Acceptable` (Apache default error page). Provjereno protiv zvaničnog Overpass-API GitHub issue-a (`drolbr/Overpass-API#791`) i OSM community foruma: Overpass API je 2026. uveo stroža anti-abuse pravila zbog preopterećenja servera — **zahtjevi bez identifikacionog `User-Agent` header-a se odbijaju**. Ispravka: dodat `User-Agent: GIS-Landscape-Identification-MVP/0.1 (github.com/mimicgoran/gis-landscape-mvp; ...)` header na svaki Overpass poziv, plus regresioni test koji provjerava da se header šalje. `Referer` header nije dodat (nema live domena prije Phase 15 deploymenta) — izvori navode `User-Agent` kao dovoljan fix.
+- **Empirijska potvrda test lokacije (Kopaonik, sekcija 15):** nakon ispravke, `GET /api/v1/osm/peaks?lat=43.2833&lon=20.8167&radius_km=20` je vratio realnu listu vrhova (content-length ~10 KB, dvocifren broj rezultata), uključujući: Pančićev vrh (2017 m), Vučak (1936 m), Veliki Karaman (1936 m), i dalje (puna lista nije transkribovana ovdje — dostupna je ponovnim pozivom endpointa). Ovo potvrđuje da Kopaonik ima gustu, imenovanu OSM `natural=peak` pokrivenost, kako je i pretpostavljeno u sekciji 15 prije nego što su stvarni podaci bili dostupni.
+
+Phase 4 je zvanično završen. Sljedeći korak: **Phase 5 — distance + bearing + candidate filtering** (povezivanje `geometry.py` iz Phase 3 sa stvarnim OSM peak podacima iz ove faze: distance/bearing za svaki peak, FOV/radius filter, ranking top-N kandidata).
+
+---
+
 ## Sljedeći korak
 
 Dokument je odobren (sekcija 0). Implementacija počinje sa PHASE 1 (project setup + ArcGIS mapa) — napredak i odluke iz svake faze se dodaju u ovaj dokument ili u prateće fajlove u `docs/`.
