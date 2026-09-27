@@ -223,3 +223,47 @@ def test_osm_peaks_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
 
     response = client.get("/api/v1/osm/peaks", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
     assert response.status_code == 503
+
+
+# --- GET /api/v1/osm/candidates (Phase 5, endpoint-level) -----------------
+
+
+def test_osm_candidates_endpoint_filters_and_reports_debug_counts(monkeypatch) -> None:
+    async def fake_fetch(self, latitude, longitude, radius_km):
+        # Jedan peak sjeverno (~22 km, unutar radius=50 I unutar uskog FOV
+        # oko heading=0), jedan istočno (~22 km, unutar radius=50 ali VAN
+        # tog FOV) -- provjerava i filter i debug brojeve.
+        return [
+            osm_route.OSMPeak(osm_id=1, name="North", latitude=latitude + 0.2, longitude=longitude, ele_m=2000.0),
+            osm_route.OSMPeak(osm_id=2, name="East", latitude=latitude, longitude=longitude + 0.2, ele_m=1800.0),
+        ]
+
+    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+
+    response = client.get(
+        "/api/v1/osm/candidates",
+        params={"lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "fov_deg": 40.0, "radius_km": 50.0},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["candidates"]) == 1
+    assert body["candidates"][0]["osm_id"] == 1
+    assert body["debug"] == {
+        "osm_candidates_total": 2,
+        "candidates_after_fov_radius_filter": 1,
+        "candidates_returned": 1,
+    }
+
+
+def test_osm_candidates_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
+    async def fake_fetch(self, latitude, longitude, radius_km):
+        raise OverpassError("Overpass API nedostupan: simulacija za test")
+
+    monkeypatch.setattr(OverpassService, "fetch_peaks_in_radius", fake_fetch)
+
+    response = client.get(
+        "/api/v1/osm/candidates",
+        params={"lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "fov_deg": 40.0, "radius_km": 50.0},
+    )
+    assert response.status_code == 503

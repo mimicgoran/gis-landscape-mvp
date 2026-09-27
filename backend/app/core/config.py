@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     enable_earth_curvature_correction: bool = False
     earth_curvature_refraction_coefficient: float = 0.13
 
+    # --- Candidate ranking (Phase 5) ---
+    # Ako sektor sadrži više kandidata nego što ima smisla obraditi kroz
+    # skup DEM/line-of-sight (Phase 6-8 -- svaki kandidat troši nekoliko
+    # desetina DEM sample-ova), ograničavamo se na najrelevantnije. Brief
+    # (tačka 44) predlaže "10-20"; biramo gornju granicu tog opsega jer
+    # broj vrhova u jednom sektoru (i na gušće pokrivenim test lokacijama
+    # poput Kopaonika -- vidi sekciju 22) rijetko prelazi ovaj broj, pa cap
+    # praktično rijetko odbacuje stvarno vidljive vrhove. Vidi
+    # app.services.geometry.select_candidates za samu logiku rangiranja.
+    candidate_ranking_max_n: int = 20
+
     # --- Eksterni servisi ---
     overpass_api_url: str = "https://overpass-api.de/api/interpreter"
     copernicus_dem_bucket: str = "copernicus-dem-30m"

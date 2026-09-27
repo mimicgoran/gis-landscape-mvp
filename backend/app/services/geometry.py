@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pyproj import Geod
 
+from app.models.feature import OSMPeak, PeakCandidate
+
 # Jedan Geod objekat po procesu — inicijalizacija nije besplatna, a instanca
 # je immutable/thread-safe za `.inv()` pozive.
 _WGS84_GEOD = Geod(ellps="WGS84")
@@ -52,3 +54,59 @@ def is_within_sector(bearing_deg: float, heading_deg: float, fov_deg: float) -> 
     vidi docs/architecture-feasibility-review.md, sekcija 8, korak 4.
     """
     return angular_difference_deg(bearing_deg, heading_deg) <= fov_deg / 2.0
+
+
+def select_candidates(
+    observer_latitude: float,
+    observer_longitude: float,
+    heading_deg: float,
+    fov_deg: float,
+    radius_km: float,
+    peaks: list[OSMPeak],
+) -> list[PeakCandidate]:
+    """Filtrira sirove OSM peakove na one unutar `radius_km` I unutar
+    viewing sektora (`heading_deg`/`fov_deg`), računa distance/bearing/
+    angular-difference za svaki preživjeli, i sortira po relevantnosti.
+
+    Rangiranje (obrazloženje, vidi i docs/architecture-feasibility-review.md,
+    napomena o candidate ranking pragu u core/config.py): prvo po ugaonoj
+    blizini heading-u (`angular_difference_deg` rastuće) -- vrh koji je
+    najbliže centru vidnog polja je najrelevantniji odgovor na "šta gledam",
+    pa po `distance_km` rastuće kao tiebreaker za vrhove na približno istom
+    pravcu. Elevation/prominence NAMJERNO ne ulazi u rangiranje ovdje --
+    DEM (Phase 6) i pouzdana OSM `ele` pokrivenost nisu još dostupni za sve
+    kandidate u ovoj fazi, pa bi uključivanje nepotpunog signala u
+    rangiranje bilo neopravdana "smart" heuristika (isti princip kao odluka
+    o elevation fusion-u, sekcija 6 arhitekture).
+
+    NE ograničava broj rezultata -- capping na max-N kandidata je
+    odgovornost pozivaoca (vidi `Settings.candidate_ranking_max_n`), jer
+    zavisi od konteksta (trošak DEM/line-of-sight po kandidatu u Phase
+    6-8), ne od same geometrije.
+    """
+    candidates: list[PeakCandidate] = []
+
+    for peak in peaks:
+        distance_km = geodesic_distance_km(observer_latitude, observer_longitude, peak.latitude, peak.longitude)
+        if distance_km > radius_km:
+            continue
+
+        bearing_deg = initial_bearing_deg(observer_latitude, observer_longitude, peak.latitude, peak.longitude)
+        if not is_within_sector(bearing_deg, heading_deg, fov_deg):
+            continue
+
+        candidates.append(
+            PeakCandidate(
+                osm_id=peak.osm_id,
+                name=peak.name,
+                latitude=peak.latitude,
+                longitude=peak.longitude,
+                ele_m=peak.ele_m,
+                distance_km=distance_km,
+                bearing_deg=bearing_deg,
+                angular_difference_deg=angular_difference_deg(bearing_deg, heading_deg),
+            )
+        )
+
+    candidates.sort(key=lambda c: (c.angular_difference_deg, c.distance_km))
+    return candidates

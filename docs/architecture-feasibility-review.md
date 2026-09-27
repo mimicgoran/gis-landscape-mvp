@@ -651,6 +651,22 @@ Phase 4 je zvanično završen. Sljedeći korak: **Phase 5 — distance + bearing
 
 ---
 
+## 23. Phase 5 — status i naučene lekcije (27.09.2026)
+
+Phase 5 (distance + bearing + candidate filtering) je implementiran i verifikovan i preko unit testova i preko prave Overpass integracije.
+
+- `geometry.py` dobija `select_candidates()`: za svaki sirov OSM peak (Phase 4) računa distance/bearing (Phase 3 funkcije), filtrira po `radius_km` i viewing sektoru, i sortira preživjele kandidate. Funkcija namjerno NE ograničava broj rezultata — capping je odgovornost pozivaoca.
+- **Rangiranje (dizajn odluka, obrazložena prije implementacije):** prvo po ugaonoj blizini heading-u (`angular_difference_deg` rastuće — najrelevantniji odgovor na "šta gledam"), pa po `distance_km` kao tiebreaker. Elevation/prominenca namjerno NE ulazi u rangiranje u ovoj fazi — DEM (Phase 6) i pouzdana OSM `ele` pokrivenost još nisu dostupni za sve kandidate, pa bi to bila neopravdana heuristika (isti princip kao odluka o elevation fusion-u, sekcija 6).
+- `Settings.candidate_ranking_max_n = 20` — cap na broj kandidata koji idu dalje u DEM/line-of-sight (Phase 6-8), obrazložen brifom (tačka 44: "10-20") i empirijski (Kopaonik gustina vrhova, sekcija 22).
+- Novi dev endpoint `GET /api/v1/osm/candidates` (heading/FOV/radius parametri) vraća `{"candidates": [...], "debug": {...}}` — `debug` blok prati oblik iz sekcije 11 (finalni `/api/v1/analyze`).
+- 7 novih testova (5 u `test_geometry.py` za `select_candidates`, uključujući eksplicitan wrap-around slučaj; 2 endpoint-level u `test_osm.py`). Ukupno 49 backend testova, svi prolaze.
+- **Empirijska potvrda:** poziv `/api/v1/osm/candidates` protiv prave Overpass instance za Kopaonik (`heading_deg=90, fov_deg=45, radius_km=20`) je nakon par retry-ja (vidi ispod) vratio manju, filtriranu listu kandidata sa ispravnim `debug` brojevima.
+- **Napomena (ne bug, već potvrda već dokumentovanog rizika):** tokom ručne provjere, Overpass API je vratio `504 Gateway Timeout` (naš servis je to ispravno propagirao kao `503`, bez pada aplikacije). Ovo je tačno rizik već naveden u sekciji 14 ("Overpass reliability — LOW-MEDIUM, javne instance mogu biti spore ili privremeno vratiti 429/504"). Riješeno prostim retry-jem (2 pokušaja) — ako se ovo pokaže učestalim tokom daljeg razvoja/demoa, razmotriti fallback na alternativnu javnu instancu (`overpass.kumi.systems`) u `Settings.overpass_api_url`.
+
+Phase 5 je zvanično završen. Sljedeći korak: **Phase 6 — DEM integracija** (Copernicus DEM GLO-30 preko `rasterio`, S3 COG windowed read, lokalni disk cache tile-ova — vidi sekciju 5).
+
+---
+
 ## Sljedeći korak
 
 Dokument je odobren (sekcija 0). Implementacija počinje sa PHASE 1 (project setup + ArcGIS mapa) — napredak i odluke iz svake faze se dodaju u ovaj dokument ili u prateće fajlove u `docs/`.

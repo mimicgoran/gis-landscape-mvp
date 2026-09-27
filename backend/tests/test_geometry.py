@@ -92,3 +92,76 @@ def test_is_within_sector_just_outside_boundary():
 
 def test_is_within_sector_center_direction_always_inside():
     assert is_within_sector(bearing_deg=180.0, heading_deg=180.0, fov_deg=20.0) is True
+
+
+# --- select_candidates (Phase 5) -----------------------------------------
+
+
+def _peak(osm_id, lat, lon, name=None, ele_m=None):
+    from app.models.feature import OSMPeak
+
+    return OSMPeak(osm_id=osm_id, name=name, latitude=lat, longitude=lon, ele_m=ele_m)
+
+
+def test_select_candidates_filters_out_of_radius():
+    from app.services.geometry import select_candidates
+
+    # Opservera je na (0, 0). Peak A je ~55 km sjeverno (unutar radius=100),
+    # peak B je ~220 km sjeverno (van radius=100).
+    peaks = [_peak(1, 0.5, 0.0, name="A"), _peak(2, 2.0, 0.0, name="B")]
+    candidates = select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=100.0, peaks=peaks)
+
+    assert [c.osm_id for c in candidates] == [1]
+
+
+def test_select_candidates_filters_outside_fov():
+    from app.services.geometry import select_candidates
+
+    # Peak A je sjeverno (bearing ~0, unutar FOV 40 centriranog na heading 0).
+    # Peak B je istočno (bearing ~90, van tog FOV).
+    peaks = [_peak(1, 0.5, 0.0, name="North"), _peak(2, 0.0, 0.5, name="East")]
+    candidates = select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=40.0, radius_km=100.0, peaks=peaks)
+
+    assert [c.osm_id for c in candidates] == [1]
+
+
+def test_select_candidates_wraparound_heading_359():
+    from app.services.geometry import select_candidates
+
+    # Observer gleda ka heading=359, FOV=10 (sektor ~354-4 stepeni). Peak je
+    # neznatno istočno-sjeverno od observera -- bearing blizu 1 stepen.
+    # Ovo je eksplicitan wrap-around test slučaj iz brifa (tačka 24/51).
+    peaks = [_peak(1, 1.0, 0.02, name="Wraparound peak")]
+    candidates = select_candidates(0.0, 0.0, heading_deg=359.0, fov_deg=10.0, radius_km=200.0, peaks=peaks)
+
+    assert len(candidates) == 1
+    assert candidates[0].angular_difference_deg < 5.0
+
+
+def test_select_candidates_sorted_by_angular_difference_then_distance():
+    from app.services.geometry import select_candidates
+
+    # Sva tri su unutar širokog FOV=90 centriranog na sjever (heading=0):
+    #   - "Far but centered": tačno na sjeveru (bearing ~0), daleko.
+    #   - "Near but off-center": blago istočno (veći bearing), blizu.
+    #   - "Off-center medium": između njih po uglu.
+    # Očekujemo redoslijed po angular_difference_deg rastuće, PA po
+    # distance_km kao tiebreaker.
+    peaks = [
+        _peak(1, 2.0, 0.0, name="Far but centered"),
+        _peak(2, 0.3, 0.3, name="Near but off-center"),
+        _peak(3, 1.0, 0.5, name="Off-center medium"),
+    ]
+    candidates = select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=500.0, peaks=peaks)
+
+    assert candidates[0].osm_id == 1  # najmanji angular_difference (skoro 0)
+    # Preostala dva redoslijeda zavise od stvarnih uglova -- provjeravamo samo
+    # da je lista sortirana neopadajuće po (angular_difference_deg, distance_km).
+    keys = [(c.angular_difference_deg, c.distance_km) for c in candidates]
+    assert keys == sorted(keys)
+
+
+def test_select_candidates_empty_input_returns_empty_list():
+    from app.services.geometry import select_candidates
+
+    assert select_candidates(0.0, 0.0, heading_deg=0.0, fov_deg=45.0, radius_km=20.0, peaks=[]) == []

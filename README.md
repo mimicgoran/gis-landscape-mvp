@@ -54,7 +54,16 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] Pronađen i ispravljen bug: Overpass API zahtijeva `User-Agent` header (bez njega vraća `406 Not Acceptable`) — detalji u `docs/architecture-feasibility-review.md`, sekcija 22.
 - [x] Empirijski potvrđena test lokacija (Kopaonik) — stvaran Overpass odgovor sadrži gustu listu imenovanih vrhova (Pančićev vrh, Vučak, Veliki Karaman, ...).
 
-Sljedeća faza: **Phase 5 — distance + bearing + candidate filtering** (povezivanje `geometry.py` sa stvarnim OSM podacima).
+## Trenutni status (Phase 5)
+
+- [x] `select_candidates()` u `geometry.py` — filtrira OSM peakove po radius/FOV sektoru, računa distance/bearing/angular-difference, sortira po relevantnosti.
+- [x] Rangiranje: prvo ugaona blizina heading-u, pa distanca kao tiebreaker (elevacija namjerno izostavljena dok DEM nije dostupan — Phase 6).
+- [x] `candidate_ranking_max_n = 20` cap za DEM/line-of-sight fazu.
+- [x] Dev endpoint `GET /api/v1/osm/candidates` sa `debug` blokom (broj kandidata prije/poslije filtera).
+- [x] 7 novih testova (uklj. wrap-around). Ukupno 49 backend testova, svi prolaze.
+- [x] Empirijski potvrđeno protiv prave Overpass instance za Kopaonik (uz jedan tranzitorni 504 od Overpass-a, riješen retry-jem — poznat, već dokumentovan rizik).
+
+Sljedeća faza: **Phase 6 — DEM integracija** (Copernicus DEM GLO-30 preko `rasterio`).
 
 ## Licenca podataka
 
