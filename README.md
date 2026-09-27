@@ -71,7 +71,15 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 - [x] Dev endpoint `GET /api/v1/elevation/lookup?lat=&lon=`.
 - [x] 13 novih testova (naming konvencija za sve hemisfere, cache-hit/download put, nodata handling -- stvarno `rasterio` čitanje se testira protiv pravog malog GeoTIFF fixture-a, samo mrežni download je mock-ovan). Ukupno 62 backend testa, svi prolaze.
 
-Sljedeća faza: **Phase 7 — observer elevation + location quality arhitektura** (DEM + phone altitude fuzija, location quality pragovi).
+## Trenutni status (Phase 7)
+
+- [x] `LocationQuality` model i `location_quality.py` servis -- `classify_confidence()`, `compute_observer_elevation_m()`, `build_location_quality()` (puna logika i pragovi već odobreni u `docs/architecture-feasibility-review.md`, sekcija 6, prije implementacije).
+- [x] Dva granična slučaja dogovorena prije koda: DEM nedostupan -> `confidence: "low"` bez obzira na GPS accuracy; `horizontal_accuracy_m == None` (manual/desktop observer) -> `confidence: "high"` (detalji: sekcija 25).
+- [x] Dev endpoint `GET /api/v1/observer/elevation`.
+- [x] 15 novih testova (granični slučajevi pragova, oba nova pravila, sastavljanje modela, endpoint). Ukupno 77 backend testova, svi prolaze.
+- [x] Ručno potvrđeno za Pančićev vrh -- `observer_elevation_m` = DEM + eye height, `confidence: "high"` i sa i bez GPS accuracy podatka.
+
+Sljedeća faza: **Phase 8 — line-of-sight engine** (geodesic observer→target linija, DEM sampling, visible/blocked odluka).
 
 ## Licenca podataka
 

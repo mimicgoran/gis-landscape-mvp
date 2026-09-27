@@ -684,6 +684,23 @@ Phase 6 je zvanično završen. Sljedeći korak: **Phase 7 — observer elevation
 
 ---
 
+## 25. Phase 7 — status i naučene lekcije (27.09.2026)
+
+Phase 7 (observer elevation + location quality arhitektura) je implementiran i verifikovan i preko unit testova i ručno preko dev endpointa. Za razliku od prethodnih faza, ovdje nije bilo novih tehničkih iznenađenja -- glavna logika (DEM kao jedini autoritativni izvor, phone altitude dijagnostika bez fuzije, pragovi za confidence) je već bila predložena i odobrena u sekciji 6, prije bilo kakve implementacije. Phase 7 je dodao dva granična slučaja koja sekcija 6 nije eksplicitno pokrivala, predložena i odobrena PRIJE pisanja koda:
+
+- **DEM nedostupan za observer lokaciju** (van GLO-30 pokrivenosti ili mrežni problem) → `confidence` je automatski `"low"`, bez obzira na GPS `horizontal_accuracy_m`, i `selected_ground_elevation_m`/`elevation_source` ostaju `None`. Vlasnik projekta je primijetio da će za sve stvarne test lokacije (Kopaonik, Stara planina, Tara — sve u Srbiji, pokrivenost već potvrđena u Phase 6) DEM praktično uvijek biti dostupan — ova grana koda je zato više odbrana za produkcijsku robusnost/portfolio kvalitet nego stvarno očekivan scenario u demou, ali je zadržana jer `ElevationService.get_elevation()` (Phase 6) već vraća `None` besplatno u tom slučaju, pa ignorisanje te informacije ne bi imalo smisla.
+- **`horizontal_accuracy_m is None`** (manual/desktop observer, Phase 2 — klik na mapu nema GPS accuracy koncept) → tretira se kao `"high"`, ne kao nepoznato/`"low"`. Obrazloženje: manuelni klik je namjerno, tačno postavljena tačka bez GPS greške, ne "GPS fix nepoznate preciznosti" — tretiranje kao `"low"` bi neopravdano obezvrijedilo svaki desktop-development test (brief, tačka 38).
+
+- `app/models/location_quality.py`: `LocationQuality` Pydantic model, tačno prema JSON šemi već definisanoj u sekciji 11 (`horizontal_accuracy_m`, `phone_altitude_m`, `phone_altitude_accuracy_m`, `dem_elevation_m`, `selected_ground_elevation_m`, `elevation_source`, `confidence`). `elevation_source` tipiziran kao `Literal["dem", "dem_phone_fusion", "dem_phone_disagreement"] | None` — potonja dva su dio šeme radi buduće kompatibilnosti (Phase 2/Future fuzija), ali logika koja bi ih aktivno postavljala nije implementirana u MVP-u (vidi sekciju 6).
+- `app/services/location_quality.py`: `classify_confidence()` (čista funkcija, pragovi iz `Settings` + oba granična slučaja iznad), `compute_observer_elevation_m()` (`terrain_elevation + eye_height`, `None` ako terrain nedostupan), `build_location_quality()` (sastavlja pun model; `selected_ground_elevation_m` je u MVP-u uvijek == `dem_elevation_m`, pošto fuzija nije implementirana).
+- Novi dev endpoint `GET /api/v1/observer/elevation` (lat/lon + opcioni horizontal_accuracy_m/phone_altitude_m/phone_altitude_accuracy_m) kombinuje Phase 6 `ElevationService` sa Phase 7 servisom i vraća pun `observer`/`location_quality` pregled iz sekcije 11, kao pripremu za `/api/v1/analyze` (Phase 9).
+- 15 novih testova (`test_location_quality.py`): granični slučajevi pragova (tačno na `horizontal_accuracy_high_m`/`horizontal_accuracy_medium_m`, taman iznad), `None` accuracy → `"high"`, DEM nedostupan → `"low"` bez obzira na accuracy (uklj. kombinaciju sa `None` accuracy), sastavljanje modela, endpoint-level testovi. Ukupno 77 backend testova, svi prolaze.
+- Ručno potvrđeno preko Swagger UI-ja za Pančićev vrh (43.2692547, 20.8236633): sa `horizontal_accuracy_m=6.4` → `observer_elevation_m: 2013.3337890625` (DEM 2011.6337890625 + eye height 1.7), `confidence: "high"`, `elevation_source: "dem"`; bez `horizontal_accuracy_m` (manual observer slučaj) → identičan `observer_elevation_m`, `confidence` ostaje `"high"`.
+
+Phase 7 je zvanično završen. Sljedeći korak: **Phase 8 — line-of-sight engine** (za svaki kandidat iz Phase 5, geodesic linija observer→target, DEM sampling duž linije po pravilima iz sekcije 9, elevation angle poređenje, visible/blocked odluka).
+
+---
+
 ## Sljedeći korak
 
 Dokument je odobren (sekcija 0). Implementacija počinje sa PHASE 1 (project setup + ArcGIS mapa) — napredak i odluke iz svake faze se dodaju u ovaj dokument ili u prateće fajlove u `docs/`.
