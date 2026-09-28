@@ -1,13 +1,25 @@
 /**
- * Prikazuje rezultate analize (visible/blocked tačkasti feature-i i area
- * feature-i) -- originalni brief Phase 9 ("Visible/blocked UI", sekcija 35),
- * uradeno tek sada zajedno sa Phase 10 (vidi glavnu arhitekturu, napomena
- * o procjepu u numeraciji faza).
+ * Prikazuje rezultate analize (tačkasti i area feature-i) -- originalni
+ * brief Phase 9 ("Visible/blocked UI", sekcija 35), uradeno zajedno sa
+ * Phase 10 (vidi glavnu arhitekturu, napomena o procjepu u numeraciji faza).
  *
  * Namjerno prost DOM (liste, ne tabela/framework) -- brief tačka 35: "Nemoj
- * praviti komplikovan UI framework samo zbog ovoga." Vizuelni naglasak na
- * visible feature-ima (zelena značka, isticanje) nad blocked (sivkasto,
- * manje upadljivo) -- isto tačka 35.
+ * praviti komplikovan UI framework samo zbog ovoga."
+ *
+ * Dizajn prilagođen nakon prvog pravog telefon testa (korisnička odluka,
+ * vidi docs/architecture-feasibility-review.md, sekcija 33):
+ * - JEDNA ravna lista, bez "Tačke"/"Rijeke i vode" sekcija -- korisnik je
+ *   ocijenio da odvojene sekcije nisu potrebne za jedan pogled u sektor.
+ * - Svaki red pokazuje SAMO ime i kategoriju (jednom) -- distance/bearing/
+ *   procenat vidljivosti su namjerno uklonjeni iz liste (bili su duplirani
+ *   sa VIDLJIVO/DJELIMIČNO/ZAKLONJENO bedžom, koji već nosi tu informaciju
+ *   na jednostavniji, skalabilniji način). Puni brojevi i dalje postoje u
+ *   `analysis` objektu i debug panelu za onoga kome trebaju.
+ * - Feature bez imena (npr. bezimeni `natural=water` poligon koji OSM
+ *   mapiranje ostavi odvojen od imenovane rijeke i pored merge fix-a iz
+ *   Phase 10 -- vidi arhitekturu sekcija 30) se NE prikazuje -- korisnička
+ *   odluka: neimenovan objekat nije korisna informacija planinaru.
+ * - Ekavica (Reka/DELIMIČNO), ne ijekavica -- korisnička odluka.
  *
  * AI opis (Phase 13) NIJE ovdje -- ovaj panel prikazuje samo strukturirane
  * GIS rezultate, po dizajnu "GEOSPATIAL ANALYSIS FIRST, AI SECOND" (brief
@@ -21,16 +33,29 @@ const POINT_CATEGORY_LABELS = {
 };
 
 const AREA_CATEGORY_LABELS = {
-  river: "Rijeka",
+  river: "Reka",
   water: "Vodena površina",
   park: "Park",
   national_park: "Nacionalni park",
 };
 
-const AREA_VISIBILITY_LABELS = {
+// Badge tekst i sortirajući prioritet (niže = prikazuje se prije) --
+// visible mora biti vizuelno najistaknutiji/prvi (brief tačka 35).
+const VISIBILITY_RANK = { visible: 0, partially_visible: 1, blocked: 2 };
+const VISIBILITY_BADGE_LABELS = {
   visible: "VIDLJIVO",
-  partially_visible: "DJELIMIČNO",
+  partially_visible: "DELIMIČNO",
   blocked: "ZAKLONJENO",
+};
+const VISIBILITY_BADGE_CLASS = {
+  visible: "result-badge-visible",
+  partially_visible: "result-badge-partial",
+  blocked: "result-badge-blocked",
+};
+const VISIBILITY_ROW_CLASS = {
+  visible: "result-row-visible",
+  partially_visible: "result-row-partial",
+  blocked: "result-row-blocked",
 };
 
 /**
@@ -67,73 +92,69 @@ export function initResultsPanel() {
       panel.hidden = false;
       panel.replaceChildren();
 
-      const totalPointFeatures = analysis.visible_features.length + analysis.blocked_features.length;
+      const rows = buildRows(analysis);
 
-      if (totalPointFeatures === 0 && analysis.area_features.length === 0) {
+      if (rows.length === 0) {
         panel.append(el("div", { className: "results-status" }, "Nema identifikovanih objekata u ovom sektoru."));
         return;
       }
 
-      if (totalPointFeatures > 0) {
-        panel.append(el("h3", { className: "results-heading" }, "Tačke"));
-        // Visible prvo -- vizuelno važniji od blocked (brief tačka 35).
-        for (const feature of analysis.visible_features) {
-          panel.append(renderPointFeatureRow(feature));
-        }
-        for (const feature of analysis.blocked_features) {
-          panel.append(renderPointFeatureRow(feature));
-        }
-      }
-
-      if (analysis.area_features.length > 0) {
-        panel.append(el("h3", { className: "results-heading" }, "Rijeke / vode / parkovi"));
-        for (const feature of analysis.area_features) {
-          panel.append(renderAreaFeatureRow(feature));
-        }
+      for (const row of rows) {
+        panel.append(renderRow(row));
       }
     },
   };
 }
 
-function renderPointFeatureRow(feature) {
-  const isVisible = feature.visibility === "visible";
+/**
+ * Spaja tačkaste (visible_features + blocked_features) i area feature-e u
+ * JEDNU listu jednoobraznih redova, izbacuje neimenovane feature-e, i
+ * sortira: visible prvo, zatim partially_visible, zatim blocked (brief
+ * tačka 35); unutar iste grupe, bliži prvo.
+ */
+function buildRows(analysis) {
+  const rows = [];
 
-  const info = el("div", { className: "result-row-info" });
-  info.append(
-    el("div", { className: "result-row-name" }, feature.name ?? POINT_CATEGORY_LABELS[feature.category] ?? feature.category),
-    el(
-      "div",
-      { className: "result-row-meta" },
-      `${POINT_CATEGORY_LABELS[feature.category] ?? feature.category} · ${feature.distance_km.toFixed(1)} km · ` +
-        `${Math.round(feature.bearing_deg)}° · ${Math.round(feature.elevation_m)} m`
-    )
-  );
+  for (const feature of analysis.visible_features) {
+    rows.push(pointFeatureToRow(feature, "visible"));
+  }
+  for (const feature of analysis.blocked_features) {
+    rows.push(pointFeatureToRow(feature, "blocked"));
+  }
+  for (const feature of analysis.area_features) {
+    rows.push(areaFeatureToRow(feature));
+  }
 
-  const row = el("div", { className: `result-row ${isVisible ? "result-row-visible" : "result-row-blocked"}` });
-  row.append(info, el("div", { className: `result-badge ${isVisible ? "result-badge-visible" : "result-badge-blocked"}` }, isVisible ? "VIDLJIVO" : "ZAKLONJENO"));
-  return row;
+  return rows
+    .filter((row) => row.name) // bez imena -- ne prikazuj (korisnička odluka)
+    .sort((a, b) => VISIBILITY_RANK[a.visibility] - VISIBILITY_RANK[b.visibility] || a.distanceKm - b.distanceKm);
 }
 
-function renderAreaFeatureRow(feature) {
-  const isVisible = feature.visibility === "visible";
-  const isPartial = feature.visibility === "partially_visible";
-  const badgeClass = isVisible ? "result-badge-visible" : isPartial ? "result-badge-partial" : "result-badge-blocked";
-  const rowClass = isVisible ? "result-row-visible" : isPartial ? "result-row-partial" : "result-row-blocked";
+function pointFeatureToRow(feature, visibility) {
+  return {
+    name: feature.name,
+    categoryLabel: POINT_CATEGORY_LABELS[feature.category] ?? feature.category,
+    visibility,
+    distanceKm: feature.distance_km,
+  };
+}
 
+function areaFeatureToRow(feature) {
+  return {
+    name: feature.name,
+    categoryLabel: AREA_CATEGORY_LABELS[feature.category] ?? feature.category,
+    visibility: feature.visibility,
+    distanceKm: feature.closest_distance_km,
+  };
+}
+
+function renderRow(row) {
   const info = el("div", { className: "result-row-info" });
-  info.append(
-    el("div", { className: "result-row-name" }, feature.name ?? AREA_CATEGORY_LABELS[feature.category] ?? feature.category),
-    el(
-      "div",
-      { className: "result-row-meta" },
-      `${AREA_CATEGORY_LABELS[feature.category] ?? feature.category} · ${feature.closest_distance_km.toFixed(1)} km · ` +
-        `${Math.round(feature.bearing_deg)}° · ${Math.round(feature.visible_fraction * 100)}% vidljivo`
-    )
-  );
+  info.append(el("div", { className: "result-row-name" }, row.name), el("div", { className: "result-row-meta" }, row.categoryLabel));
 
-  const row = el("div", { className: `result-row ${rowClass}` });
-  row.append(info, el("div", { className: `result-badge ${badgeClass}` }, AREA_VISIBILITY_LABELS[feature.visibility]));
-  return row;
+  const element = el("div", { className: `result-row ${VISIBILITY_ROW_CLASS[row.visibility]}` });
+  element.append(info, el("div", { className: `result-badge ${VISIBILITY_BADGE_CLASS[row.visibility]}` }, VISIBILITY_BADGE_LABELS[row.visibility]));
+  return element;
 }
 
 function el(tag, props, text) {

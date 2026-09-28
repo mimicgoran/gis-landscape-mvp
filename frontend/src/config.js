@@ -53,11 +53,14 @@ export const BACKEND_BASE_URL = resolveBackendBaseUrl();
 // mijenjaju se na oba mjesta.
 export const FOV_MIN_DEG = 20;
 export const FOV_MAX_DEG = 90;
-export const FOV_DEFAULT_DEG = 50;
+// Default 30 (ne 50) -- korisnička odluka nakon prvog pravog telefon testa
+// (mora biti usklađeno sa backend/app/core/config.py fov_default_deg).
+export const FOV_DEFAULT_DEG = 30;
 
 export const RADIUS_MIN_KM = 5;
 export const RADIUS_MAX_KM = 30;
-export const RADIUS_DEFAULT_KM = 20;
+// Default 5 (ne 20) -- ista odluka, usklađeno sa radius_default_km.
+export const RADIUS_DEFAULT_KM = 5;
 
 // Heading nema "prirodan" default (zavisi isključivo od toga gdje korisnik
 // gleda) — 0 (sjever) je proizvoljna ali razumna početna vrijednost dok se

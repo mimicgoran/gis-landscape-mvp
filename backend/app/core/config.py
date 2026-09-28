@@ -51,10 +51,17 @@ class Settings(BaseSettings):
     # Vidi architecture-feasibility-review.md, sekcija 8.
     fov_min_deg: float = 20.0
     fov_max_deg: float = 90.0
-    fov_default_deg: float = 50.0
+    # Default promijenjen sa 50 na 30 (korisnička odluka nakon prvog pravog
+    # telefon testa, Phase 10 -- vidi docs/architecture-feasibility-review.md,
+    # sekcija 33) -- i dalje unutar dokumentovanog 20-90 opsega iz sekcije 8,
+    # samo uži početni sektor.
+    fov_default_deg: float = 30.0
     radius_min_km: float = 5.0
     radius_max_km: float = 30.0
-    radius_default_km: float = 20.0
+    # Default promijenjen sa 20 na 5 (ista odluka kao gore) -- donja granica
+    # dokumentovanog opsega, jer manji radius znači brži Overpass/DEM/LOS
+    # pipeline za tipičan demo slučaj; korisnik i dalje može podići slajder.
+    radius_default_km: float = 5.0
 
     # --- Line-of-sight (Phase 8) ---
     # Sampling korak ~= DEM rezolucija (30 m). Vidi sekciju 9.

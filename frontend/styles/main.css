@@ -166,19 +166,6 @@ body {
   font-size: 13px;
 }
 
-.results-heading {
-  margin: 10px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #5f6368;
-}
-
-.results-heading:first-child {
-  margin-top: 0;
-}
-
 .results-status {
   color: #5f6368;
   padding: 4px 0;
