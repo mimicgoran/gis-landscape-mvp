@@ -56,11 +56,16 @@ class Settings(BaseSettings):
     # sekcija 33) -- i dalje unutar dokumentovanog 20-90 opsega iz sekcije 8,
     # samo uži početni sektor.
     fov_default_deg: float = 30.0
-    radius_min_km: float = 5.0
+    # Donja granica promijenjena sa 5 na 1 km (korisnička odluka, drugi
+    # pravi telefon test) -- korisnik želi moći analizirati i vrlo blizak
+    # sektor (npr. objekti u naselju/dvorištu), ne samo planinarski opseg.
+    # Gornja granica (30 km) ostaje ista kao u sekciji 0/8 -- earth
+    # curvature i dalje nije uključena u MVP, obrazloženje se ne mijenja.
+    radius_min_km: float = 1.0
     radius_max_km: float = 30.0
-    # Default promijenjen sa 20 na 5 (ista odluka kao gore) -- donja granica
-    # dokumentovanog opsega, jer manji radius znači brži Overpass/DEM/LOS
-    # pipeline za tipičan demo slučaj; korisnik i dalje može podići slajder.
+    # Default (5) ostaje nepromijenjen -- i dalje unutar novog 1-30 opsega,
+    # obrazloženje iz prethodne odluke (brži Overpass/DEM/LOS za tipičan
+    # demo slučaj) i dalje važi.
     radius_default_km: float = 5.0
 
     # --- Line-of-sight (Phase 8) ---

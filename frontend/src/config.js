@@ -57,7 +57,10 @@ export const FOV_MAX_DEG = 90;
 // (mora biti usklađeno sa backend/app/core/config.py fov_default_deg).
 export const FOV_DEFAULT_DEG = 30;
 
-export const RADIUS_MIN_KM = 5;
+// Donja granica 1 (ne 5) -- korisnička odluka nakon drugog pravog telefon
+// testa, usklađeno sa backend radius_min_km. Omogućava analizu i vrlo
+// bliskog sektora (npr. objekti u naselju), ne samo planinarskog opsega.
+export const RADIUS_MIN_KM = 1;
 export const RADIUS_MAX_KM = 30;
 // Default 5 (ne 20) -- ista odluka, usklađeno sa radius_default_km.
 export const RADIUS_DEFAULT_KM = 5;

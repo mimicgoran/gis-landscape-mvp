@@ -15,6 +15,16 @@
  * src/services/arcgisAuthService.js. Analiza ("Šta gledam?") i geolocation
  * takode zavise od backenda -- vidi src/services/analyzeService.js i
  * src/services/geolocationService.js.
+ *
+ * NAPOMENA (korisnička odluka nakon drugog pravog telefon testa): debug/
+ * location-quality panel (`ui/debugPanel.js`, brief sekcija 15/57) je na
+ * mobilnom ekranu (bottom:16px, isti ugao kao resultsPanel na uskim
+ * ekranima -- vidi styles/main.css media query) fizički prekrivao listu
+ * pronađenih objekata. Umjesto finog CSS repozicioniranja, panel je u
+ * potpunosti uklonjen iz glavnog UI-ja (`#debugPanel` ostaje u DOM-u sa
+ * `hidden`, `debugPanel.js` modul i backend `location_quality`/`debug`
+ * polja ostaju netaknuti) -- tačno onako kako brief sekcija 15 eksplicitno
+ * dozvoljava: "Ako komplikuje MVP, ovaj panel može biti Phase 2".
  */
 
 import { createMapView } from "./map/mapSetup.js";
@@ -22,7 +32,6 @@ import { setupObserverInteraction, placeObserverMarker } from "./map/observerInt
 import { renderSector } from "./map/sectorRenderer.js";
 import { renderResults } from "./map/resultsRenderer.js";
 import { initControlsPanel } from "./ui/controlsPanel.js";
-import { initDebugPanel } from "./ui/debugPanel.js";
 import { initResultsPanel } from "./ui/resultsPanel.js";
 import { initActionButtons } from "./ui/actionButtons.js";
 import { getCurrentPosition } from "./services/geolocationService.js";
@@ -60,7 +69,6 @@ async function bootstrap() {
     const { view, observerLayer, sectorLayer, resultsLayer } = await createMapView("viewDiv");
     console.info("[main] MapView spreman.", view);
 
-    const debugPanel = initDebugPanel();
     const resultsPanel = initResultsPanel();
 
     // Observer se drži ovdje (ne u kontrolama) jer ga postavlja klik na
@@ -93,7 +101,6 @@ async function bootstrap() {
           const position = await getCurrentPosition();
           await placeObserverMarker(view, observerLayer, position.latitude, position.longitude);
           currentObserver = position;
-          debugPanel.updateObserver(position);
           renderSector(sectorLayer, view, currentObserver, controls.getSector());
           clearStaleResults();
           // Rekentriranje samo za geolocation (ne i manual klik -- tamo je
@@ -131,7 +138,6 @@ async function bootstrap() {
             phoneAltitudeAccuracyM: currentObserver.phoneAltitudeAccuracyM,
           });
 
-          debugPanel.updateAnalysis(analysis);
           resultsPanel.render(analysis);
           await renderResults(resultsLayer, analysis);
           console.info("[main] Analiza završena:", analysis.debug);
@@ -152,7 +158,6 @@ async function bootstrap() {
       // Manual klik -- accuracy/altitude polja namjerno izostavljena
       // (undefined), fetchAnalysis ih onda ne šalje backend-u uopšte.
       currentObserver = observer;
-      debugPanel.updateObserver(observer);
       renderSector(sectorLayer, view, currentObserver, controls.getSector());
       clearStaleResults();
       console.info("[main] Observer postavljen klikom:", observer);
