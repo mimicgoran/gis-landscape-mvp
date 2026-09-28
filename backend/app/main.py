@@ -26,12 +26,23 @@ app = FastAPI(
     ),
 )
 
+# U development okruženju dodatno dozvoljavamo *.trycloudflare.com --
+# besplatan, bez-naloga "quick tunnel" (cloudflared) koji dobija NASUMIČAN
+# subdomen pri svakom pokretanju, korišten za privremeno HTTPS testiranje
+# pravog telefona (Geolocation/DeviceOrientation API zahtijevaju secure
+# context) PRIJE Phase 15 stvarnog deploymenta -- vidi
+# docs/architecture-feasibility-review.md, sekcija 32. Regex je namjerno
+# uslovljen na "development" (nikad u produkciji) -- vidi Settings.environment.
+_cors_kwargs: dict = {"allow_origins": settings.cors_allow_origins}
+if settings.environment == "development":
+    _cors_kwargs["allow_origin_regex"] = r"https://.*\.trycloudflare\.com"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allow_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    **_cors_kwargs,
 )
 
 app.include_router(health.router, prefix="/api/v1")

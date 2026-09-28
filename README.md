@@ -111,10 +111,24 @@ Prije ovog koraka je otkriveno da frontend nikad nije implementirao originalni b
 - [x] `main.js` prepisan -- puna orkestracija observer -> sector -> analyze -> rezultati (mapa + panel + debug).
 - [x] Prvi ručni test (Sava kod Orašca) je urađen -- otkrio je dva otvorena pitanja, OBA sada riješena i POTVRĐENA na pravim podacima: (1) rijeka se pojavljivala kao DVA odvojena rezultata (`river` + `water`) -- **riješeno** geometrijskim spajanjem (`merge_overlapping_river_water_features`, arhitektura sekcija 30), potvrđeno na pravoj Sava OSM geometriji (nema više duplikata); (2) neobjašnjeno nizak `visible_fraction` -- uzrok: nedostatak tolerancije za DEM vertikalnu nesigurnost na kratkim distancama. **Riješeno** ugaonom tolerancijom (`Settings.dem_vertical_accuracy_m = 2.0`, distance-scaled preko `atan(accuracy/distance)` po terenskoj tački) i korekcijom eye height-a (1.7 -> 1.85 m) -- arhitektura sekcija 31. Živi re-test: "Сава" 0% -> **100%** vidljivo, "Добрava" 33% -> **67%** vidljivo (jedan segment realno ostaje djelimično blokiran).
 - [x] `pytest` pokrenut (asistent, `device_bash` + `pip install`) -- **159 passed, 0 failed** (157 + 2 nova testa za ugaonu toleranciju).
-- [x] Push četiri lokalna commit-a odobren (Phase 10 UI, samples dijagnostika, river/water merge, tolerancija/eye height).
-- [ ] Ručna provjera stvarnog Sava slučaja (uz konkretne koordinate i `?include_profile=true`) je sljedeći korak prije push-a cijele Phase 10.
+- [x] Push pet lokalnih commit-a potvrđen na GitHub-u (Phase 10 UI, samples dijagnostika, river/water merge, tolerancija/eye height, dokumentacija).
 
-Sljedeća faza nakon verifikacije: **Phase 11+ -- phone altitude diagnostics (dodatna provjera/dorada), device orientation/compass** (brief sekcija 54).
+Phase 10 je time potpuno završen i verifikovan na pravim podacima.
+
+## Phase 11 (phone altitude diagnostics) -- provjereno, nema novog koda
+
+Prije pisanja bilo čega, provjereno je da li nešto fali naspram brief-a (sekcija 11, CASE A-D logika za phone altitude). Zaključak: **ne fali ništa** -- `location_quality.py` (Phase 7) već ispravno implementira sva četiri slučaja (DEM je uvijek autoritativan izvor, phone altitude ostaje dijagnostički), sa 12 testova; frontend (Phase 10) već prikuplja i prikazuje te vrijednosti. Puna fuzija (prosjek DEM + phone altitude) je namjerno neaktivna zbog nepoznatog vertical datum usklađivanja (WGS84 elipsoidna vs. EGM2008 orthometric height, ~40-45 m razlika na Balkanu) -- brief sam dozvoljava ovaj ishod (tačka 12). Puno obrazloženje: `docs/architecture-feasibility-review.md`, sekcija 32.
+
+## Privremeni HTTPS tunnel za testiranje na pravom telefonu (prije Phase 12)
+
+Ni geolocation (Phase 10) ni planirani compass (Phase 12) nisu do sad testirani na pravom telefonu -- oba API-ja zahtijevaju HTTPS/secure context, što je bilo planirano tek za Phase 15. Umjesto da se Phase 12 napiše i ostane neverifikovan do kraja projekta, prvo je dodata podrška za besplatan `cloudflared` "quick tunnel" (bez naloga):
+
+- `backend/app/main.py`: CORS dozvoljava `https://*.trycloudflare.com` samo u development okruženju.
+- `frontend/src/config.js`: `?backend=<url>` query parametar override za backend URL kad se frontend otvori preko tunnel adrese.
+
+Puna procedura (instalacija `cloudflared`, pokretanje dva tunnela, `?backend=` URL na telefonu): `docs/architecture-feasibility-review.md`, sekcija 32.
+
+Sljedeća faza nakon prvog pravog telefon testa: **Phase 12 -- device orientation/compass** (brief sekcija 54).
 
 ## Licenca podataka
 

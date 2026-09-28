@@ -20,10 +20,28 @@ export const ARCGIS_WEB_MAP_ITEM_ID = "";
 export const DEFAULT_MAP_CENTER = [20.9, 44.0]; // [longitude, latitude]
 export const DEFAULT_MAP_ZOOM = 7;
 
-export const BACKEND_BASE_URL =
-  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "http://localhost:8000"
-    : "https://REPLACE-ME.onrender.com"; // popuniti u Phase 15 (deployment)
+/**
+ * `?backend=<url>` query parametar override -- namjerno dodano za
+ * privremeno HTTPS tunnel testiranje na pravom telefonu (cloudflared quick
+ * tunnel, vidi docs/architecture-feasibility-review.md sekcija 32) PRIJE
+ * Phase 15 stvarnog deploymenta. Kad se frontend otvori preko tunnel URL-a
+ * (npr. https://xxxx.trycloudflare.com), `window.location.hostname` NIJE
+ * "localhost", pa bi inače pao na placeholder Render URL ispod -- override
+ * rješava to bez potrebe da se ovaj fajl ručno mijenja za svaki test.
+ * Nema perzistencije (namjerno) -- vrijedi samo za tu jednu posjetu/URL.
+ */
+function resolveBackendBaseUrl() {
+  const override = new URLSearchParams(window.location.search).get("backend");
+  if (override) {
+    return override;
+  }
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://localhost:8000";
+  }
+  return "https://REPLACE-ME.onrender.com"; // popuniti u Phase 15 (deployment)
+}
+
+export const BACKEND_BASE_URL = resolveBackendBaseUrl();
 
 // --- Viewing sector granice (Phase 3) ---
 // MORA biti usklađeno sa backend/app/core/config.py
