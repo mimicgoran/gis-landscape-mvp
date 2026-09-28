@@ -25,10 +25,22 @@
  * `hidden`, `debugPanel.js` modul i backend `location_quality`/`debug`
  * polja ostaju netaknuti) -- tačno onako kako brief sekcija 15 eksplicitno
  * dozvoljava: "Ako komplikuje MVP, ovaj panel može biti Phase 2".
+ *
+ * NAPOMENA (korisnička odluka, 28.09.2026 -- vidi
+ * docs/architecture-feasibility-review.md sekcija 38): observer se SADA
+ * postavlja ISKLJUČIVO preko dugmeta "Koristi moju lokaciju" (geolocation).
+ * Manual klik na mapu za postavljanje observera (originalni brief Phase 2,
+ * tačka 38 "Desktop development mode") je namjerno UKLONJEN -- korisnik je
+ * eksplicitno prihvatio da ovo krši brief tačku 42 ("Manual mode mora
+ * omogućiti testiranje čak i kada geolocation ne radi") u zamjenu za
+ * sigurnost da se observer nikad ne pomjeri slučajnim klikom na mapu.
+ * Ako geolocation nije dostupan/bude odbijen, aplikacija trenutno nema
+ * fallback -- vidi services/geolocationService.js za detalje i najjednostavniji
+ * put nazad ako se ovo pokaže kao problem u praksi.
  */
 
 import { createMapView } from "./map/mapSetup.js";
-import { setupObserverInteraction, placeObserverMarker } from "./map/observerInteraction.js";
+import { placeObserverMarker } from "./map/observerInteraction.js";
 import { renderSector } from "./map/sectorRenderer.js";
 import { renderResults } from "./map/resultsRenderer.js";
 import { initControlsPanel } from "./ui/controlsPanel.js";
@@ -71,17 +83,16 @@ async function bootstrap() {
 
     const resultsPanel = initResultsPanel();
 
-    // Observer se drži ovdje (ne u kontrolama) jer ga postavlja klik na
-    // mapu ILI geolocation, ne slajder -- sector renderer i analyze poziv
-    // trebaju i observer i sector parametre na svaku promjenu bilo kog od
-    // njih. Za manual klik, horizontalAccuracyM/phoneAltitudeM/
-    // phoneAltitudeAccuracyM ostaju undefined (backend ih tretira isto kao
-    // `null` -- vidi ObserverInput model).
+    // Observer se drži ovdje (ne u kontrolama) jer ga postavlja ISKLJUČIVO
+    // geolocation (dugme "Koristi moju lokaciju", vidi onLocate niže) -- ne
+    // slajder, ne klik na mapu (uklonjen, vidi napomenu na vrhu fajla).
+    // Sector renderer i analyze poziv trebaju i observer i sector parametre
+    // na svaku promjenu bilo kog od njih.
     let currentObserver = null;
 
     function clearStaleResults() {
       // Rezultati važe za observer poziciju u trenutku poziva -- kad se
-      // observer pomjeri (novi klik ili nova geolocation), stari rezultati
+      // observer pomjeri (nova geolocation), stari rezultati
       // više ne odgovaraju novoj poziciji, pa se sklanjaju umjesto da
       // zavaravajuće ostanu na mapi/panelu dok se "Šta gledam?" ponovo ne
       // pritisne.
@@ -103,8 +114,6 @@ async function bootstrap() {
           currentObserver = position;
           renderSector(sectorLayer, view, currentObserver, controls.getSector());
           clearStaleResults();
-          // Rekentriranje samo za geolocation (ne i manual klik -- tamo je
-          // korisnik već gledao tačno tu tačku na mapi).
           view.goTo({ center: [position.longitude, position.latitude], zoom: 13 }).catch(() => {});
           console.info("[main] Observer postavljen preko geolocation-a:", position);
         } catch (error) {
@@ -117,7 +126,7 @@ async function bootstrap() {
 
       onAnalyze: async () => {
         if (!currentObserver) {
-          showBanner("Prvo postavi observera -- klikni na mapu ili koristi dugme 'Koristi moju lokaciju'.");
+          showBanner("Prvo postavi observera -- koristi dugme 'Koristi moju lokaciju'.");
           return;
         }
 
@@ -152,15 +161,6 @@ async function bootstrap() {
           actions.setAnalyzeLoading(false);
         }
       },
-    });
-
-    await setupObserverInteraction(view, observerLayer, (observer) => {
-      // Manual klik -- accuracy/altitude polja namjerno izostavljena
-      // (undefined), fetchAnalysis ih onda ne šalje backend-u uopšte.
-      currentObserver = observer;
-      renderSector(sectorLayer, view, currentObserver, controls.getSector());
-      clearStaleResults();
-      console.info("[main] Observer postavljen klikom:", observer);
     });
   } catch (error) {
     console.error("[main] Neuspješna inicijalizacija mape:", error);

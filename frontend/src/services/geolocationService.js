@@ -12,16 +12,22 @@
  * Kontinuirano praćenje ide u Future ako se pokaže potreba -- isti princip
  * "ne over-engineer-uj" kao i ostatak projekta.
  *
- * Manual observer (klik na mapu, Phase 2, vidi observerInteraction.js)
- * OSTAJE obavezan fallback za slučaj da geolocation nije dostupan, bude
- * odbijen, ili developer testira konkretnu lokaciju sa desktopa (brief,
- * tačka 16: "Aplikacija ne smije zavisiti od toga da compass/GPS radi").
+ * NAPOMENA (korisnička odluka, 28.09.2026 -- vidi docs/architecture-feasibility-review.md
+ * sekcija 38): manual klik na mapu za postavljanje observera je UKLONJEN.
+ * Ovo je namjerno odstupanje od brief tačke 16/42 (koje su tražile manual
+ * mode kao obavezan fallback kad geolocation ne radi) -- korisnik je
+ * eksplicitno odlučio da prihvati rizik da aplikacija bude neupotrebljiva
+ * ako je pristup lokaciji odbijen ili nedostupan, u zamjenu za to da se
+ * observer NIKAD ne može slučajno postaviti pogrešnim klikom na mapu.
+ * Ako se ovaj rizik u praksi pokaže kao problem (npr. tokom LinkedIn demo
+ * snimanja), najjednostavniji povratak je ponovo dodati manual klik SAMO
+ * kao fallback koji se aktivira tek kad `getCurrentPosition()` odbaci
+ * (vidi git istoriju za uklonjen `observerInteraction.js:setupObserverInteraction`).
  *
  * NAPOMENA o secure context-u: Geolocation API zahtijeva HTTPS ili
  * localhost. Testiranje sa pravog telefona preko LAN IP-a (npr.
  * http://192.168.x.x:5500 ka desktop dev serveru) NEĆE raditi -- ovo je
- * poznato ograničenje riješeno tek u Phase 15 (HTTPS deployment). Do tada,
- * manual mode je jedini način da se testira sa telefona preko LAN-a.
+ * poznato ograničenje riješeno tek u Phase 15 (HTTPS deployment).
  */
 
 const GEOLOCATION_TIMEOUT_MS = 10000;
@@ -44,8 +50,7 @@ export function getCurrentPosition() {
   if (!("geolocation" in navigator)) {
     return Promise.reject(
       new Error(
-        "Geolocation nije dostupan u ovom browseru/kontekstu (potrebno je HTTPS ili localhost). " +
-          "Koristi ručni mod -- klikni na mapu."
+        "Geolocation nije dostupan u ovom browseru/kontekstu (potrebno je HTTPS ili localhost)."
       )
     );
   }
@@ -79,12 +84,12 @@ export function getCurrentPosition() {
 function describeGeolocationError(error) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      return "Pristup lokaciji je odbijen. Koristi ručni mod -- klikni na mapu da postaviš poziciju.";
+      return "Pristup lokaciji je odbijen. Omogući pristup lokaciji u podešavanjima browsera/telefona i pokušaj ponovo.";
     case error.POSITION_UNAVAILABLE:
-      return "Lokacija trenutno nije dostupna (GPS signal?). Koristi ručni mod -- klikni na mapu.";
+      return "Lokacija trenutno nije dostupna (GPS signal?). Pokušaj ponovo na otvorenom prostoru.";
     case error.TIMEOUT:
-      return "Očitavanje lokacije je isteklo. Pokušaj ponovo ili koristi ručni mod.";
+      return "Očitavanje lokacije je isteklo. Pokušaj ponovo.";
     default:
-      return "Nepoznata greška pri očitavanju lokacije. Koristi ručni mod -- klikni na mapu.";
+      return "Nepoznata greška pri očitavanju lokacije. Pokušaj ponovo.";
   }
 }

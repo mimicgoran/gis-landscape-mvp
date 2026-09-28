@@ -1,13 +1,16 @@
 /**
- * Observer marker -- postavljanje preko klika na mapu (Phase 2) I preko
- * browser geolocation-a (Phase 10). Oba puta dijele ISTI Point/Graphic/
- * symbol kod (`placeObserverMarker`) da se ne duplira logika na dva mjesta.
+ * Observer marker -- postavljanje preko browser geolocation-a (Phase 10).
  *
- * Manual klik (`setupObserverInteraction`) ostaje aktivan i nakon Phase 10
- * kao OBAVEZAN fallback za slučaj kad geolocation nije dostupan/je odbijen,
- * ili kad developer namjerno želi testirati konkretnu lokaciju (npr.
- * Kopaonik) dok fizički sjedi za računarom (brief, tačka 38: "Desktop
- * development mode").
+ * NAPOMENA (korisnička odluka, 28.09.2026 -- vidi
+ * docs/architecture-feasibility-review.md sekcija 38): ovaj modul je do
+ * ove izmjene izlagao i `setupObserverInteraction()` -- klik-na-mapu
+ * handler iz originalnog brief Phase 2 ("Desktop development mode",
+ * tačka 38), koji je bio i obavezan fallback po tački 42 kad geolocation
+ * ne radi. Korisnik je eksplicitno tražio da se observer NIKAD ne može
+ * postaviti klikom, samo preko dugmeta "Koristi moju lokaciju" -- funkcija
+ * je uklonjena (vidi main.js za kontekst i rizik koji ova odluka nosi).
+ * `placeObserverMarker()` ostaje jer je i dalje jedini put kojim se
+ * observer marker crta, sad isključivo iz main.js-ovog onLocate handlera.
  */
 
 let GraphicClass;
@@ -29,7 +32,7 @@ async function ensureClassesLoaded() {
 
 /**
  * Postavlja (briše prethodni i crta novi) observer marker na dat lat/lon.
- * Zajednička putanja za manual klik i geolocation -- vidi modul docstring.
+ * Vidi modul docstring za istoriju (ranije zajednička putanja i za manual klik).
  *
  * @param {import("@arcgis/core/views/MapView").default} view
  * @param {import("@arcgis/core/layers/GraphicsLayer").default} observerLayer
@@ -47,7 +50,7 @@ export async function placeObserverMarker(view, observerLayer, latitude, longitu
   });
 
   // Observer je uvijek tačno jedan graphic -- brišemo prethodni umjesto
-  // gomilanja markera na svaki klik/geolocation poziv.
+  // gomilanja markera na svaki geolocation poziv.
   observerLayer.removeAll();
   observerLayer.add(
     new GraphicClass({
@@ -57,27 +60,4 @@ export async function placeObserverMarker(view, observerLayer, latitude, longitu
   );
 
   return { latitude: point.latitude, longitude: point.longitude };
-}
-
-/**
- * Registruje click handler na MapView koji postavlja/pomjera observer
- * marker preko `placeObserverMarker`, i javlja novu poziciju pozivaocu.
- *
- * @param {import("@arcgis/core/views/MapView").default} view
- * @param {import("@arcgis/core/layers/GraphicsLayer").default} observerLayer
- * @param {(observer: { latitude: number, longitude: number }) => void} onObserverPlaced
- */
-export async function setupObserverInteraction(view, observerLayer, onObserverPlaced) {
-  await ensureClassesLoaded();
-
-  view.on("click", async (event) => {
-    // Sprječava default ponašanje (npr. eventualni popup na budućim
-    // slojevima) -- klik na mapu uvijek postavlja observer, nikad ne
-    // identifikuje postojeće feature-e (za to služe popup-i na resultsLayer-u,
-    // vidi resultsRenderer.js).
-    event.stopPropagation();
-
-    const observer = await placeObserverMarker(view, observerLayer, event.mapPoint.latitude, event.mapPoint.longitude);
-    onObserverPlaced(observer);
-  });
 }
