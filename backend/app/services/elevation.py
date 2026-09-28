@@ -47,6 +47,33 @@ Potvrđen fix (rasterio FAQ + GitHub Discussion #2721, identičan slučaj sa
 drugom PostgreSQL verzijom): obrisati PROJ_LIB i PROJ_DATA iz environment-a
 PRIJE `import rasterio` -- rasterio se tad vraća na sopstvenu bundlovanu PROJ
 verziju iz wheel-a. Ovo mora biti urađeno na nivou modula, prije import-a.
+
+OTVORENI DATASET HANDLE KEŠ (dodano nakon korisničke primjedbe "analiza
+traje predugo", drugi telefon test): `get_elevation()`/`get_elevation_profile()`
+su do sada otvarale `rasterio.open(cache_path)` PO POZIVU, čak i kad je
+ciljani `.tif` već na disku. Jedan `/api/v1/analyze/preview` zahtjev radi
+DESETINE do STOTINE ovakvih poziva (target elevation + line-of-sight profil
+za svaki point kandidat, PLUS target elevation + profil za svaku sample
+tačku svakog area feature-a -- vidi `area_visibility.py`) -- svaki
+`rasterio.open()` parsira COG IFD/overview strukturu i otvara fajl handle,
+što je mjerljiv trošak kad se ponovi stotinama puta u jednom zahtjevu (a na
+Windows-u dodatno usporeno realtime antivirus skeniranjem svakog file-open
+poziva). Rješenje: `ElevationService` sad drži OTVORENE `rasterio` dataset
+handle-ove u `self._datasets` (keyed po tile imenu) za cijeli životni vijek
+servisa (jedan singleton po `main.py`/dev endpointima), umjesto da ih
+otvara i zatvara po pozivu -- isti tile se realno otvara SAMO JEDNOM za
+cijelu sesiju servera, bez obzira koliko puta se traži.
+
+Namjerna pojednostavljenja (dovoljno za MVP, portfolio-veličine saobraćaj):
+- Nema eksplicitnog zatvaranja/LRU eviction-a -- broj tile-ova koje jedan
+  demo ikad dotakne je mali (par test lokacija), a jedan otvoren COG handle
+  je jeftin (lijeno/windowed čitanje, ne učitava cijeli fajl u memoriju).
+- Nema thread-lock-a oko keša -- FastAPI sync rute rade u threadpool-u, pa
+  bi TEORETSKI dva paralelna zahtjeva mogla istovremeno otvarati isti tile
+  i oba upisati u `self._datasets` (jedan handle bi se izgubio bez explicit
+  close-a) -- prihvatljivo za jednog korisnika koji testira sekvencijalno
+  (MVP scope), ali NIJE bezbjedno za pravu concurrent produkciju -- vidi
+  README Limitations.
 """
 
 from __future__ import annotations
@@ -131,6 +158,9 @@ class ElevationService:
         self._cache_dir = Path(settings.dem_cache_dir)
         self._bucket = settings.copernicus_dem_bucket
         self._download_timeout_s = settings.dem_download_timeout_s
+        # Otvoreni rasterio dataset handle-ovi, keyed po tile imenu -- vidi
+        # modul docstring ("OTVORENI DATASET HANDLE KEŠ") za obrazloženje.
+        self._datasets: dict[str, rasterio.io.DatasetReader] = {}
 
     def _tile_url(self, tile_name: str) -> str:
         return f"https://{self._bucket}.s3.amazonaws.com/{tile_name}/{tile_name}.tif"
@@ -147,6 +177,25 @@ class ElevationService:
             _download_tile(self._tile_url(tile_name), cache_path, self._download_timeout_s)
         return cache_path
 
+    def _get_dataset(self, tile_name: str) -> rasterio.io.DatasetReader | None:
+        """Vraća OTVOREN `rasterio` dataset za `tile_name`, iz keša ako je
+        već otvoren u ovoj sesiji servera, inače ga preuzima (ako treba) i
+        otvara JEDNOM -- vidi modul docstring ("OTVORENI DATASET HANDLE
+        KEŠ"). Vraća `None` uz isto graceful-degradation ponašanje kao
+        prije (preuzimanje/otvaranje ne uspije -- tretira se kao "DEM
+        nedostupan", ne fatalna greška)."""
+        cached = self._datasets.get(tile_name)
+        if cached is not None:
+            return cached
+        try:
+            cache_path = self._ensure_tile_downloaded(tile_name)
+            dataset = rasterio.open(cache_path)
+        except (ElevationError, rasterio.errors.RasterioIOError, OSError) as exc:
+            logger.warning("DEM tile %s nedostupan: %s", tile_name, exc)
+            return None
+        self._datasets[tile_name] = dataset
+        return dataset
+
     def get_elevation(self, latitude: float, longitude: float) -> float | None:
         """Vraća terensku elevaciju u metrima na (latitude, longitude), ili
         `None` ako tile nije dostupan/pokriven, preuzimanje ne uspije, ili
@@ -158,23 +207,26 @@ class ElevationService:
         "DEM nedostupan" i nastaviti dalje (brief, tačka 42).
 
         Za VIŠE tačaka odjednom (npr. Phase 8 line-of-sight profil), koristi
-        `get_elevation_profile()` -- ova metoda otvara `rasterio` fajl po
-        pozivu, što je u redu za pojedinačne upite (dev endpoint), ali
-        rasipnički za stotine/hiljade tačaka duž jedne linije."""
+        `get_elevation_profile()` -- dataset handle je otvoren SAMO JEDNOM
+        bez obzira koja se metoda koristi (vidi "OTVORENI DATASET HANDLE
+        KEŠ" u modul docstring-u), ali `get_elevation_profile()` grupiše sve
+        tačke istog tile-a u JEDAN `dataset.sample()` poziv umjesto po
+        jedan poziv po tački -- i dalje vrijedno za stotine/hiljade tačaka
+        duž jedne linije."""
         tile_name = _tile_name(latitude, longitude)
 
+        dataset = self._get_dataset(tile_name)
+        if dataset is None:
+            return None
+
         try:
-            cache_path = self._ensure_tile_downloaded(tile_name)
-            with rasterio.open(cache_path) as dataset:
-                sample = next(dataset.sample([(longitude, latitude)]))
-                elevation_m = float(sample[0])
-                if dataset.nodata is not None and elevation_m == dataset.nodata:
-                    logger.warning(
-                        "DEM nodata piksel na (%s, %s) u tile-u %s", latitude, longitude, tile_name
-                    )
-                    return None
-                return elevation_m
-        except (ElevationError, rasterio.errors.RasterioIOError, OSError) as exc:
+            sample = next(dataset.sample([(longitude, latitude)]))
+            elevation_m = float(sample[0])
+            if dataset.nodata is not None and elevation_m == dataset.nodata:
+                logger.warning("DEM nodata piksel na (%s, %s) u tile-u %s", latitude, longitude, tile_name)
+                return None
+            return elevation_m
+        except (rasterio.errors.RasterioIOError, OSError) as exc:
             logger.warning("DEM elevacija nedostupna za (%s, %s): %s", latitude, longitude, exc)
             return None
 
@@ -201,16 +253,16 @@ class ElevationService:
             points_by_tile.setdefault(tile_name, []).append(idx)
 
         for tile_name, indices in points_by_tile.items():
+            dataset = self._get_dataset(tile_name)
+            if dataset is None:
+                continue  # results[idx] ostaju None za sve tačke ovog tile-a (već inicijalizovano)
             try:
-                cache_path = self._ensure_tile_downloaded(tile_name)
-                with rasterio.open(cache_path) as dataset:
-                    nodata = dataset.nodata
-                    coords = [(points[i][1], points[i][0]) for i in indices]  # (lon, lat) za rasterio
-                    for idx, sample in zip(indices, dataset.sample(coords)):
-                        value = float(sample[0])
-                        results[idx] = None if (nodata is not None and value == nodata) else value
-            except (ElevationError, rasterio.errors.RasterioIOError, OSError) as exc:
+                nodata = dataset.nodata
+                coords = [(points[i][1], points[i][0]) for i in indices]  # (lon, lat) za rasterio
+                for idx, sample in zip(indices, dataset.sample(coords)):
+                    value = float(sample[0])
+                    results[idx] = None if (nodata is not None and value == nodata) else value
+            except (rasterio.errors.RasterioIOError, OSError) as exc:
                 logger.warning("DEM profil nedostupan za tile %s (%d tačaka): %s", tile_name, len(indices), exc)
-                # results[idx] ostaju None za sve tačke ovog tile-a (već inicijalizovano)
 
         return results

@@ -11,6 +11,16 @@ Nije konačan API dizajn -- finalni `/api/v1/analyze` (Phase 9+) će biti
 POST sa observer objektom u body-ju, ne GET sa query parametrima; ovaj
 endpoint postoji isključivo radi ručne verifikacije da cijeli lanac
 funkcioniše end-to-end prije nego što se doda AI opis i frontend UI.
+
+PERFORMANSA (korisnička primjedba "analiza traje predugo", drugi telefon
+test): tačkasti i area Overpass upiti su ranije bili SEKVENCIJALNI, sa
+CIJELIM point-candidate DEM/line-of-sight prolazom IZMEĐU njih -- area
+Overpass poziv je čekao da se prvo završi sav point posao. Sad se oba
+Overpass upita pokreću KONKURENTNO (`asyncio.gather`) na samom početku,
+prije bilo kakvog DEM rada -- vrijeme čekanja na mrežu se preklapa umjesto
+sabira. Vidi i `ElevationService` ("OTVORENI DATASET HANDLE KEŠ") za drugu
+polovinu ove optimizacije -- ranije rasipničko ponavljano otvaranje istog
+DEM tile-a za svaki kandidat/sample.
 """
 
 import asyncio
@@ -33,6 +43,18 @@ router = APIRouter(tags=["analyze-dev"])
 _overpass_service = OverpassService(get_settings())
 _overpass_area_service = OverpassAreaService(get_settings())
 _elevation_service = ElevationService(get_settings())
+
+
+async def _fetch_osm_features(lat: float, lon: float, radius_km: float):
+    """Pokreće tačkasti i area Overpass upit KONKURENTNO (`asyncio.gather`)
+    umjesto sekvencijalno -- vidi modul docstring, "PERFORMANSA". Oba
+    servisa imaju sopstvenu retry/cache logiku (`OverpassService`/
+    `OverpassAreaService`), ovo samo pokreće oba istovremeno umjesto jedan
+    za drugim."""
+    return await asyncio.gather(
+        _overpass_service.fetch_point_features_in_radius(lat, lon, radius_km),
+        _overpass_area_service.fetch_area_features_in_radius(lat, lon, radius_km),
+    )
 
 
 @router.get("/analyze/preview")
@@ -99,8 +121,8 @@ def get_analyze_preview(
         }
 
     try:
-        peaks = asyncio.run(_overpass_service.fetch_point_features_in_radius(lat, lon, radius_km))
-    except OverpassError as exc:
+        peaks, raw_area_features = asyncio.run(_fetch_osm_features(lat, lon, radius_km))
+    except (OverpassError, OverpassAreaError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     all_candidates = select_candidates(
@@ -159,11 +181,9 @@ def get_analyze_preview(
 
     # --- Phase 9: area feature-i (rijeke/vodene površine/parkovi/nacionalni
     # parkovi) -- odvojen pipeline (sector intersect + mini-viewshed), vidi
-    # app.services.area_visibility modul docstring.
-    try:
-        raw_area_features = asyncio.run(_overpass_area_service.fetch_area_features_in_radius(lat, lon, radius_km))
-    except OverpassAreaError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # app.services.area_visibility modul docstring. `raw_area_features` je
+    # već dohvaćen konkurentno sa `peaks` iznad (vidi modul docstring,
+    # "PERFORMANSA").
 
     # Spaja rijeku i preklapajucu vodenu povrsinu u jedan rezultat -- OSM ih
     # cesto mapira oba puta za istu fizicku rijeku (otkriveno rucnim
