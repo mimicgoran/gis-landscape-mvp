@@ -119,6 +119,26 @@ class AnalyzedFeature(BaseModel):
     )
 
 
+class AreaSamplePoint(BaseModel):
+    """Jedna mini-viewshed sample tačka za area feature -- dijagnostički detalj
+    (vidi AnalyzedAreaFeature.samples docstring). Ista informacija koju
+    `check_visibility()` (Phase 8) već računa po tački, samo eksplicitno
+    izložena umjesto da ostane samo agregirana u `visible_sample_count`."""
+
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    distance_km: float = Field(..., ge=0.0, description="Distanca od observera do ove sample tačke.")
+    elevation_m: float | None = Field(default=None, description="DEM elevacija na sample tački, None ako DEM gap.")
+    visible: bool = Field(..., description="Da li je BAŠ OVA sample tačka vidljiva (ista provjera kao Phase 8).")
+    target_angle_deg: float | None = Field(
+        default=None, description="Elevation angle od observera do ove tačke (vidi visibility.py _elevation_angle_deg)."
+    )
+    max_terrain_angle_deg: float | None = Field(
+        default=None,
+        description="Najveći elevation angle bilo koje terenske tačke izmedu observera i ove sample tačke -- ako je veći od target_angle_deg, tačka je blokirana.",
+    )
+
+
 class AnalyzedAreaFeature(BaseModel):
     """Finalni, potpuno obrađen AREA feature (rijeka / vodena površina /
     park / nacionalni park) -- rezultat Phase 9 pipeline-a (OSM geometrija
@@ -151,3 +171,13 @@ class AnalyzedAreaFeature(BaseModel):
         ..., ge=0.0, le=1.0, description="visible_sample_count / (sample_count - dem_gap_sample_count)."
     )
     visibility: Literal["visible", "partially_visible", "blocked"]
+    samples: list[AreaSamplePoint] | None = Field(
+        default=None,
+        description=(
+            "Detaljan mini-viewshed razbijen po sample tacki -- samo kad je eksplicitno zatrazeno "
+            "(?include_profile=true), inace None. Isti princip kao AnalyzedFeature.profile: dodano "
+            "nakon što je terensko testiranje (Kopaonik/Sava rijeka) pokazalo da agregatni "
+            "visible_fraction sam po sebi nije dovoljan da se objasni ZAŠTO je neki dio feature-a "
+            "označen kao zaklonjen -- vidi docs/architecture-feasibility-review.md, sekcija 29."
+        ),
+    )

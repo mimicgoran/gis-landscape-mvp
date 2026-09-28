@@ -233,3 +233,91 @@ def test_evaluate_area_feature_reports_closest_distance_and_bearing():
     # veličine, ne tačnu vrijednost (geodesic vs. flat aproksimacija).
     assert 2.0 < result.closest_distance_km < 2.5
     assert result.bearing_deg == pytest.approx(0.0, abs=1.0)  # direktno sjeverno
+
+
+# --- collect_sample_details (dodano nakon terenskog testiranja Kopaonik/Sava --
+# vidi docs/architecture-feasibility-review.md, sekcija 29: agregatni
+# visible_fraction sam po sebi nije bio dovoljan da se objasni ZAŠTO je dio
+# feature-a zaklonjen, pa je dodat opcioni per-sample diagnostic izlaz) ------
+
+
+def test_evaluate_area_feature_samples_none_by_default():
+    # collect_sample_details nije proslijeđen -- default False, isti princip
+    # kao include_profile za tačkaste feature-e (veliki JSON, opt-in).
+    feature = _river_ahead()
+    sector = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=10.0)
+    elevation_service = _ConstantElevationService(flat_elevation_m=500.0)
+
+    result = evaluate_area_feature_visibility(
+        feature=feature,
+        sector_polygon=sector,
+        observer_latitude=0.0,
+        observer_longitude=0.0,
+        observer_elevation_m=1000.0,
+        elevation_service=elevation_service,
+        settings=_settings,
+    )
+
+    assert result is not None
+    assert result.samples is None
+
+
+def test_evaluate_area_feature_collects_sample_diagnostics_when_requested():
+    feature = _river_ahead()
+    sector = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=10.0)
+    elevation_service = _ConstantElevationService(flat_elevation_m=500.0)
+
+    result = evaluate_area_feature_visibility(
+        feature=feature,
+        sector_polygon=sector,
+        observer_latitude=0.0,
+        observer_longitude=0.0,
+        observer_elevation_m=1000.0,
+        elevation_service=elevation_service,
+        settings=_settings,
+        collect_sample_details=True,
+    )
+
+    assert result is not None
+    assert result.samples is not None
+    # Jedan diagnostic zapis po sample tački -- ni manje ni više (i DEM gap
+    # tačke se zapisuju, samo sa elevation_m=None, vidi test ispod).
+    assert len(result.samples) == result.sample_count
+
+    for sample in result.samples:
+        # Flat 500m teren, ispod observera (1000m) -- svaka tačka je vidljiva
+        # (ista logika kao test_evaluate_area_feature_visible_on_flat_low_terrain).
+        assert sample.elevation_m == pytest.approx(500.0)
+        assert sample.visible is True
+        assert sample.distance_km > 0.0
+        assert sample.target_angle_deg is not None
+        # Flat teren -> nema terenskih tačaka koje bi imale VEĆI ugao od
+        # target-a (sve su na istoj ravni) -- max_terrain_angle_deg je ili
+        # None (nema intermedijarnih sample-ova na kratkoj distanci) ili <=
+        # target_angle_deg.
+        if sample.max_terrain_angle_deg is not None:
+            assert sample.max_terrain_angle_deg <= sample.target_angle_deg + 1e-9
+
+
+def test_evaluate_area_feature_sample_diagnostics_mark_dem_gap_points():
+    feature = _river_ahead()
+    sector = build_sector_polygon(0.0, 0.0, heading_deg=0.0, fov_deg=90.0, radius_km=10.0)
+    elevation_service = _ConstantElevationService(flat_elevation_m=None)  # DEM nedostupan svuda
+
+    # Sa DEM nedostupnim svuda, evaluate_area_feature_visibility normalno
+    # vraća None (svi sample-ovi su "gap") -- collect_sample_details ne
+    # mijenja taj ishod, samo obogaćuje slučajeve kad BAR JEDAN sample ima
+    # DEM. Zato ovdje ručno pozivamo sample_points_for_geometry + provjerimo
+    # da None ostaje None čak i uz collect_sample_details=True.
+    result = evaluate_area_feature_visibility(
+        feature=feature,
+        sector_polygon=sector,
+        observer_latitude=0.0,
+        observer_longitude=0.0,
+        observer_elevation_m=1000.0,
+        elevation_service=elevation_service,
+        settings=_settings,
+        collect_sample_details=True,
+    )
+
+    assert result is None

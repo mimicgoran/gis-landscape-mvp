@@ -49,6 +49,44 @@ from app.services.visibility import check_visibility
 _METERS_PER_DEGREE_LATITUDE = 111_320.0
 
 
+class AreaSampleDiagnostic:
+    """Interni (ne-Pydantic) zapis jedne mini-viewshed sample tačke --
+    sirovina za `app.models.feature.AreaSamplePoint`, sakupljena SAMO kad
+    pozivalac zatraži (`collect_sample_details=True`, vidi
+    `evaluate_area_feature_visibility`). Dodano nakon terenskog testiranja
+    (Kopaonik/Sava) koje je pokazalo da agregatni `visible_fraction` sam po
+    sebi nije dovoljan da se objasni ZAŠTO je neki dio feature-a označen
+    kao zaklonjen -- vidi docs/architecture-feasibility-review.md, sekcija 29."""
+
+    __slots__ = (
+        "latitude",
+        "longitude",
+        "distance_km",
+        "elevation_m",
+        "visible",
+        "target_angle_deg",
+        "max_terrain_angle_deg",
+    )
+
+    def __init__(
+        self,
+        latitude: float,
+        longitude: float,
+        distance_km: float,
+        elevation_m: float | None,
+        visible: bool,
+        target_angle_deg: float | None,
+        max_terrain_angle_deg: float | None,
+    ) -> None:
+        self.latitude = latitude
+        self.longitude = longitude
+        self.distance_km = distance_km
+        self.elevation_m = elevation_m
+        self.visible = visible
+        self.target_angle_deg = target_angle_deg
+        self.max_terrain_angle_deg = max_terrain_angle_deg
+
+
 class AreaVisibilityResult:
     """Rezultat agregirane visibility provjere za jedan area feature. Obična
     klasa (ne Pydantic) -- interni servisni rezultat, isti princip kao
@@ -63,6 +101,7 @@ class AreaVisibilityResult:
         "dem_gap_sample_count",
         "visible_fraction",
         "visibility",
+        "samples",
     )
 
     def __init__(
@@ -72,6 +111,7 @@ class AreaVisibilityResult:
         sample_count: int,
         visible_sample_count: int,
         dem_gap_sample_count: int,
+        samples: list[AreaSampleDiagnostic] | None = None,
     ) -> None:
         self.closest_distance_km = closest_distance_km
         self.bearing_deg = bearing_deg
@@ -81,6 +121,7 @@ class AreaVisibilityResult:
         evaluated_count = sample_count - dem_gap_sample_count
         self.visible_fraction = (visible_sample_count / evaluated_count) if evaluated_count > 0 else 0.0
         self.visibility: Literal["visible", "partially_visible", "blocked"] = _classify(self.visible_fraction)
+        self.samples = samples
 
 
 def _classify(visible_fraction: float) -> Literal["visible", "partially_visible", "blocked"]:
@@ -198,6 +239,7 @@ def evaluate_area_feature_visibility(
     observer_elevation_m: float,
     elevation_service: ElevationService,
     settings: Settings,
+    collect_sample_details: bool = False,
 ) -> AreaVisibilityResult | None:
     """Puna Phase 9 obrada jednog area feature-a: sector intersect -> sample
     tačke -> DEM elevation + `check_visibility()` po sample tački (ISTA
@@ -234,17 +276,29 @@ def evaluate_area_feature_visibility(
 
     visible_count = 0
     dem_gap_count = 0
+    sample_details: list[AreaSampleDiagnostic] | None = [] if collect_sample_details else None
 
     for point in sample_points:
         target_latitude, target_longitude = point.y, point.x
-        target_elevation_m = elevation_service.get_elevation(target_latitude, target_longitude)
-        if target_elevation_m is None:
-            dem_gap_count += 1
-            continue
-
         target_distance_m = (
             geodesic_distance_km(observer_latitude, observer_longitude, target_latitude, target_longitude) * 1000.0
         )
+        target_elevation_m = elevation_service.get_elevation(target_latitude, target_longitude)
+        if target_elevation_m is None:
+            dem_gap_count += 1
+            if sample_details is not None:
+                sample_details.append(
+                    AreaSampleDiagnostic(
+                        latitude=target_latitude,
+                        longitude=target_longitude,
+                        distance_km=target_distance_m / 1000.0,
+                        elevation_m=None,
+                        visible=False,
+                        target_angle_deg=None,
+                        max_terrain_angle_deg=None,
+                    )
+                )
+            continue
 
         result = check_visibility(
             observer_latitude=observer_latitude,
@@ -260,6 +314,19 @@ def evaluate_area_feature_visibility(
         if result.visible:
             visible_count += 1
 
+        if sample_details is not None:
+            sample_details.append(
+                AreaSampleDiagnostic(
+                    latitude=target_latitude,
+                    longitude=target_longitude,
+                    distance_km=target_distance_m / 1000.0,
+                    elevation_m=target_elevation_m,
+                    visible=result.visible,
+                    target_angle_deg=result.target_angle_deg,
+                    max_terrain_angle_deg=result.max_terrain_angle_deg,
+                )
+            )
+
     sample_count = len(sample_points)
     if sample_count == 0 or sample_count == dem_gap_count:
         return None
@@ -270,4 +337,5 @@ def evaluate_area_feature_visibility(
         sample_count=sample_count,
         visible_sample_count=visible_count,
         dem_gap_sample_count=dem_gap_count,
+        samples=sample_details,
     )

@@ -18,7 +18,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import get_settings
-from app.models.feature import AnalyzedAreaFeature, AnalyzedFeature
+from app.models.feature import AnalyzedAreaFeature, AnalyzedFeature, AreaSamplePoint
 from app.models.observer import ObserverInput
 from app.services.area_visibility import evaluate_area_feature_visibility
 from app.services.elevation import ElevationService
@@ -178,6 +178,9 @@ def get_analyze_preview(
             observer_elevation_m=observer_elevation_m,
             elevation_service=_elevation_service,
             settings=settings,
+            # Isti include_profile flag kao za tačkaste feature-e (vidi
+            # AnalyzedFeature.profile) -- veliki JSON, zato default isključeno.
+            collect_sample_details=include_profile,
         )
         if area_result is None:
             # Ili van sektora (intersect prazan), ili nijedna sample tačka
@@ -206,6 +209,22 @@ def get_analyze_preview(
             dem_gap_sample_count=area_result.dem_gap_sample_count,
             visible_fraction=area_result.visible_fraction,
             visibility=area_result.visibility,
+            samples=(
+                [
+                    AreaSamplePoint(
+                        latitude=sample.latitude,
+                        longitude=sample.longitude,
+                        distance_km=sample.distance_km,
+                        elevation_m=sample.elevation_m,
+                        visible=sample.visible,
+                        target_angle_deg=sample.target_angle_deg,
+                        max_terrain_angle_deg=sample.max_terrain_angle_deg,
+                    )
+                    for sample in area_result.samples
+                ]
+                if area_result.samples is not None
+                else None
+            ),
         )
         for area_feature, area_result in area_results
     ]

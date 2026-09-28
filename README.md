@@ -109,7 +109,8 @@ Prije ovog koraka je otkriveno da frontend nikad nije implementirao originalni b
 - [x] Novi `ui/resultsPanel.js` (lista visible/blocked/area feature-a) i `ui/actionButtons.js` ("Koristi moju lokaciju" / "Šta gledam?" dugmad).
 - [x] `ui/debugPanel.js` prošireno -- kolabsiran location-quality panel (brief sekcija 15/57), pun prikaz GPS accuracy/phone altitude/DEM elevation/confidence/debug brojača nakon analize.
 - [x] `main.js` prepisan -- puna orkestracija observer -> sector -> analyze -> rezultati (mapa + panel + debug).
-- [ ] Sav JS kod je `node --check` sintaksno provjeren, ali **korisnička ručna provjera u browseru (desktop i telefon) još nije urađena** -- commit čeka to. Poznato ograničenje: geolocation zahtijeva HTTPS/localhost, pa testiranje sa telefona preko LAN IP-a neće raditi za geolocation dio prije Phase 15 (HTTPS deployment) ili privremenog HTTPS tunela.
+- [x] Prvi ručni test (Sava kod Orašca) je urađen -- otkrio je dva otvorena pitanja, ne potvrdio da je sve u redu: (1) rijeka se pojavljuje kao DVA odvojena rezultata (`river` + `water`) jer OSM tako mapira veće rijeke -- odluka o UX rješenju čeka korisnika; (2) neobjašnjeno nizak `visible_fraction` (40-50%) na vrlo bliskoj rijeci -- dodata `AnalyzedAreaFeature.samples` dijagnostika (isti princip kao `include_profile` za tačkaste feature-e) da se uzrok utvrdi brojevima, ne nagađanjem. Detalji u arhitekturi, sekcija 29.
+- [ ] `pytest` za novu `samples` dijagnostiku i ručna provjera stvarnog Sava slučaja su sljedeći korak, prije commit-a ove izmjene i prije push-a cijele Phase 10.
 
 Sljedeća faza nakon verifikacije: **Phase 11+ -- phone altitude diagnostics (dodatna provjera/dorada), device orientation/compass** (brief sekcija 54).
 
