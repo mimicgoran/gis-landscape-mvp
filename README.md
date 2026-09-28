@@ -130,6 +130,24 @@ Puna procedura (instalacija `cloudflared`, pokretanje dva tunnela, `?backend=` U
 
 Sljedeća faza nakon prvog pravog telefon testa: **Phase 12 -- device orientation/compass** (brief sekcija 54).
 
+## Phase 15 -- Deployment
+
+Stvaran, skoro-besplatan HTTPS hosting (zamjena za privremenu `cloudflared` tunnel infrastrukturu iz prethodnih faza). Istraženo protiv TRENUTNIH (28.09.2026) uslova, ne starih pretpostavki -- vidi `docs/architecture-feasibility-review.md`, sekcija 42, za izvore.
+
+**Backend -- Render (Free Web Service), preko `render.yaml` blueprint-a:**
+- 750 besplatnih instance-sati/mjesec, servis "spava" nakon ~15 min neaktivnosti (buđenje ~1 min).
+- Filesystem je efemeran -- DEM tile keš (`ElevationService`) se briše na svaki restart/buđenje; poznato, prihvaćeno ograničenje (utiče samo na brzinu prvog zahtjeva nakon sna).
+- Podešavanje: poveži Render nalog sa GitHub repo-om, "New Blueprint Instance" -> bira `render.yaml` automatski. `ARCGIS_CLIENT_ID`/`ARCGIS_CLIENT_SECRET`/`OPENAI_API_KEY` se unose ručno u Render dashboard-u (namjerno NISU u `render.yaml`, isti princip kao `.env`).
+
+**Frontend -- GitHub Pages preko GitHub Actions** (`.github/workflows/deploy-pages.yml`):
+- Vanilla JS, bez build koraka -- workflow samo objavljuje `frontend/` folder kao Pages artifact.
+- Podešavanje: Settings -> Pages -> Source: "GitHub Actions" (jednom, ručno) -- nakon toga svaki push koji dira `frontend/` automatski deployuje.
+- Relativne putanje u `index.html` rade ispravno i pod project-page sub-path-om (`https://mimicgoran.github.io/gis-landscape-mvp/`).
+
+**CORS:** backend dozvoljava `https://mimicgoran.github.io` u produkciji (`render.yaml`, `CORS_ALLOW_ORIGINS`); `*.trycloudflare.com` regex iz razvojne faze ostaje aktivan SAMO kad je `ENVIRONMENT=development` (main.py), nikad u produkciji.
+
+**Pre-demo napomena:** zbog free tier "spavanja", probudi backend (`GET /api/v1/health`) par minuta prije bilo kakvog demo snimanja -- inače prvi klik na "Šta gledam?" čeka cold-start (~1 min) plus ponovno DEM preuzimanje.
+
 ## Licenca podataka
 
 Planinski vrhovi dolaze iz © OpenStreetMap contributors (ODbL) preko Overpass API-ja. Elevacija: Copernicus DEM GLO-30 (Copernicus DEM licenca, besplatna upotreba). Puna attribution sekcija dolazi u Phase 16.

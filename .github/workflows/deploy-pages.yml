@@ -1,0 +1,53 @@
+name: Deploy frontend to GitHub Pages
+
+# Phase 15 -- deployment. Frontend je vanilla JS (ES moduli, bez build
+# koraka) -- ovaj workflow samo uzima `frontend/` folder kao Pages artifact
+# i objavljuje ga, koristeći GitHub-ovu zvaničnu Pages Actions putanju
+# (Settings > Pages > Source: "GitHub Actions") umjesto starijeg
+# gh-pages-grane pristupa. Relativni putanje u frontend/index.html
+# (npr. "src/main.js", "styles/main.css") rade ispravno i pod project-page
+# sub-path-om (https://<user>.github.io/<repo>/), pa nije potrebna nikakva
+# transformacija sadržaja prije objavljivanja.
+#
+# Pokreće se samo kad se frontend/ zaista promijeni -- isti princip kao
+# backend-ci.yml (path-filtrirani trigger), da se ne troše nepotrebno
+# Actions minuti na svaki push koji dira samo backend/docs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload frontend/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

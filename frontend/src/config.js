@@ -24,11 +24,18 @@ export const DEFAULT_MAP_ZOOM = 7;
  * `?backend=<url>` query parametar override -- namjerno dodano za
  * privremeno HTTPS tunnel testiranje na pravom telefonu (cloudflared quick
  * tunnel, vidi docs/architecture-feasibility-review.md sekcija 32) PRIJE
- * Phase 15 stvarnog deploymenta. Kad se frontend otvori preko tunnel URL-a
- * (npr. https://xxxx.trycloudflare.com), `window.location.hostname` NIJE
- * "localhost", pa bi inače pao na placeholder Render URL ispod -- override
- * rješava to bez potrebe da se ovaj fajl ručno mijenja za svaki test.
- * Nema perzistencije (namjerno) -- vrijedi samo za tu jednu posjetu/URL.
+ * Phase 15 stvarnog deploymenta. I dalje koristan i NAKON deploymenta --
+ * npr. za testiranje frontend-a lokalno protiv produkcionog backend-a, ili
+ * produkcionog frontend-a protiv privremenog tunnel backend-a tokom
+ * budućeg razvoja. Nema perzistencije (namjerno) -- vrijedi samo za tu
+ * jednu posjetu/URL.
+ *
+ * Produkcioni fallback ispod (`gis-landscape-mvp-backend.onrender.com`)
+ * pretpostavlja da je Render servis kreiran sa TAČNO tim imenom preko
+ * `render.yaml` blueprint-a (vidi taj fajl, Phase 15 sekcija u
+ * docs/architecture-feasibility-review.md) -- Render dodaje nasumičan
+ * sufiks SAMO ako je ime već zauzeto. NAKON prvog deploya, provjeri stvarni
+ * URL u Render dashboard-u i ažuriraj ovdje ako se razlikuje.
  */
 function resolveBackendBaseUrl() {
   const override = new URLSearchParams(window.location.search).get("backend");
@@ -38,7 +45,7 @@ function resolveBackendBaseUrl() {
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
     return "http://localhost:8000";
   }
-  return "https://REPLACE-ME.onrender.com"; // popuniti u Phase 15 (deployment)
+  return "https://gis-landscape-mvp-backend.onrender.com";
 }
 
 export const BACKEND_BASE_URL = resolveBackendBaseUrl();

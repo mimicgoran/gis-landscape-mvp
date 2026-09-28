@@ -1,0 +1,44 @@
+# Render Blueprint (Phase 15 -- deployment) -- infrastructure-as-code za
+# backend web servis, umjesto ručnog klik-po-klik podešavanja u Render
+# dashboard-u. Prednost za portfolio: cijela deployment konfiguracija je
+# vidljiva i verzionisana u repo-u, ne skrivena u trećeg-servisa UI-ju.
+#
+# NAPOMENA (istraženo prije pisanja, 28.09.2026, vidi
+# docs/architecture-feasibility-review.md sekcija 42 za izvore i puno
+# obrazloženje): Render free plan web servis:
+# - 750 besplatnih instance-sati/mjesec (dovoljno za jedan servis 24/7)
+# - "spava" nakon ~15 min neaktivnosti, buđenje ~1 min (prvi zahtjev nakon
+#   sna čeka)
+# - filesystem je EFEMERAN -- briše se na svaki restart/redeploy/buđenje iz
+#   sna. Ovo znači da `ElevationService`-ov lokalni DEM tile keš (vidi
+#   backend/app/services/elevation.py) NE preživljava spavanje -- svaki put
+#   kad se servis probudi, prvi zahtjev za novu lokaciju ponovo preuzima
+#   DEM tile sa Copernicus servera. Ovo je poznato, prihvaćeno ograničenje
+#   besplatnog tier-a (utiče samo na brzinu PRVOG zahtjeva nakon buđenja,
+#   ne na tačnost) -- ne opravdava plaćeni tier za portfolio MVP.
+services:
+  - type: web
+    name: gis-landscape-mvp-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # CORS: dozvoljava frontend-u na GitHub Pages da poziva ovaj backend.
+      # Ne-tajna vrijednost -- sigurno je držati je ovdje kao `value`, ne
+      # `sync: false` (za razliku od ARCGIS_* ispod).
+      - key: CORS_ALLOW_ORIGINS
+        value: '["https://mimicgoran.github.io"]'
+      # Tajne vrijednosti -- `sync: false` znači da Render NEĆE tražiti
+      # vrijednost iz ovog fajla (koji je u git-u), nego traži da se unese
+      # ručno u Render dashboard-u nakon prvog deploya. Isti princip kao
+      # `.env`/`.env.example` -- ništa tajno ne završava u repo-u.
+      - key: ARCGIS_CLIENT_ID
+        sync: false
+      - key: ARCGIS_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
