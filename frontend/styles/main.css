@@ -16,12 +16,41 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 20;
+  /* Viši z-index od ostalih panela (30 > 20) -- namjerno, ovo JESTE
+     jedini element koji smije prekriti sve ostalo, ali SAMO unutar svoje
+     ograničene visine (max-height + overflow ispod) -- ne smije se
+     protegnuti preko #actionBar dugmadi kao što se desilo prije (real-device
+     bug, Phase 10 prvi telefon test, vidi src/main.js napomenu). */
+  z-index: 30;
+  max-height: 30vh;
+  overflow-y: auto;
   background: #b3261e;
   color: white;
-  text-align: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
   padding: 8px 12px;
   font-size: 14px;
+}
+
+.status-banner-close {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: white;
+  font-size: 16px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.status-banner-close:hover,
+.status-banner-close:active {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .status-banner code {

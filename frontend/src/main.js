@@ -30,10 +30,27 @@ import { fetchAnalysis } from "./services/analyzeService.js";
 
 async function bootstrap() {
   const statusBanner = document.getElementById("statusBanner");
+  const statusBannerText = document.createElement("span");
+  const statusBannerClose = document.createElement("button");
+  statusBannerClose.type = "button";
+  statusBannerClose.className = "status-banner-close";
+  statusBannerClose.setAttribute("aria-label", "Zatvori upozorenje");
+  statusBannerClose.textContent = "✕";
+  statusBannerClose.addEventListener("click", () => hideBanner());
+  statusBanner.replaceChildren(statusBannerText, statusBannerClose);
 
+  // NAPOMENA (real-device bug, Phase 10 prvi telefon test): ranije se
+  // isti dugačak error tekst (npr. sirov Overpass 504 odgovor) upisivao i
+  // ovdje I u resultsPanel -- statusBanner nije imao ni max-height ni
+  // dugme za zatvaranje, pa se razvukao preko dugmadi u #actionBar i
+  // fizički blokirao klik (isti z-index, statusBanner je kasnije u DOM-u).
+  // Dugme za zatvaranje + max-height/overflow (vidi styles/main.css) su
+  // trajna zaštita bez obzira na dužinu buduće poruke; pozivaoci analyze
+  // greške sad prikazuju SAMO kroz resultsPanel (koji već ima scroll),
+  // ne i ovdje -- vidi onAnalyze niže.
   function showBanner(message) {
     statusBanner.hidden = false;
-    statusBanner.textContent = message;
+    statusBannerText.textContent = message;
   }
   function hideBanner() {
     statusBanner.hidden = true;
@@ -120,8 +137,11 @@ async function bootstrap() {
           console.info("[main] Analiza završena:", analysis.debug);
         } catch (error) {
           console.error("[main] Analiza nije uspjela:", error);
+          // Namjerno SAMO resultsPanel ovdje (ne i showBanner) -- vidi
+          // napomenu uz showBanner definiciju gore. resultsPanel već ima
+          // ograničenu visinu + scroll, pa dugačka greška (npr. sirov
+          // Overpass error tekst) ne može prekriti #actionBar dugmad.
           resultsPanel.showError(error.message);
-          showBanner(error.message);
         } finally {
           actions.setAnalyzeLoading(false);
         }
