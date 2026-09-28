@@ -20,12 +20,14 @@ from shapely.geometry import LineString, MultiPolygon, Polygon
 
 from app.core.config import get_settings
 from app.services.osm_areas import (
+    OSMAreaFeature,
     OverpassAreaError,
     OverpassAreaService,
     _build_area_query,
     _infer_category,
     _relation_to_polygon,
     _way_geometry_to_shape,
+    merge_overlapping_river_water_features,
 )
 
 
@@ -383,3 +385,121 @@ def test_osm_areas_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
 
     response = client.get("/api/v1/osm/areas", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
     assert response.status_code == 503
+
+# --- merge_overlapping_river_water_features (dodano nakon terenskog testa,
+# Sava kod Orasca -- vidi docs/architecture-feasibility-review.md, sekcija
+# 29/30: OSM rijeku mapira i kao imenovanu `river` liniju i kao bezimen
+# `water` poligon, za isti fizicki objekat) --------------------------------
+
+
+def test_merge_leaves_non_overlapping_features_untouched() -> None:
+    river = OSMAreaFeature(
+        osm_id=1, osm_type="way", name="Sava", category="river", geometry=LineString([(0.0, 0.0), (0.0, 1.0)])
+    )
+    water = OSMAreaFeature(
+        osm_id=2,
+        osm_type="way",
+        name=None,
+        category="water",
+        # Poligon daleko od rijeke -- ne preklapaju se, treba ostati odvojen.
+        geometry=Polygon([(5.0, 5.0), (5.1, 5.0), (5.1, 5.1), (5.0, 5.1), (5.0, 5.0)]),
+    )
+
+    result = merge_overlapping_river_water_features([river, water])
+
+    assert len(result) == 2
+    ids = {f.osm_id for f in result}
+    assert ids == {1, 2}
+
+
+def test_merge_combines_overlapping_river_and_water_into_one_feature() -> None:
+    river = OSMAreaFeature(
+        osm_id=1, osm_type="way", name="Sava", category="river", geometry=LineString([(0.0, -0.5), (0.0, 0.5)])
+    )
+    water = OSMAreaFeature(
+        osm_id=2,
+        osm_type="way",
+        name=None,
+        category="water",
+        # Poligon koji sadrzi dio linije -- realan slucaj (natural=water
+        # pokriva vodenu povrsinu koju waterway=river linija prolazi kroz).
+        geometry=Polygon([(-0.1, -0.2), (0.1, -0.2), (0.1, 0.2), (-0.1, 0.2), (-0.1, -0.2)]),
+    )
+
+    result = merge_overlapping_river_water_features([river, water])
+
+    assert len(result) == 1
+    merged = result[0]
+    # Zadrzano ime i osm_id/tip RIJEKE (informativnije od bezimenog poligona).
+    assert merged.osm_id == 1
+    assert merged.name == "Sava"
+    assert merged.category == "river"
+    assert merged.geometry.geom_type == "GeometryCollection"
+    assert len(list(merged.geometry.geoms)) == 2
+
+
+def test_merge_river_absorbs_multiple_overlapping_water_features() -> None:
+    river = OSMAreaFeature(
+        osm_id=1, osm_type="way", name="Sava", category="river", geometry=LineString([(0.0, -1.0), (0.0, 1.0)])
+    )
+    water_a = OSMAreaFeature(
+        osm_id=2, osm_type="way", name=None, category="water",
+        geometry=Polygon([(-0.1, -0.9), (0.1, -0.9), (0.1, -0.5), (-0.1, -0.5), (-0.1, -0.9)]),
+    )
+    water_b = OSMAreaFeature(
+        osm_id=3, osm_type="way", name=None, category="water",
+        geometry=Polygon([(-0.1, 0.5), (0.1, 0.5), (0.1, 0.9), (-0.1, 0.9), (-0.1, 0.5)]),
+    )
+
+    result = merge_overlapping_river_water_features([river, water_a, water_b])
+
+    assert len(result) == 1
+    assert result[0].osm_id == 1
+    assert len(list(result[0].geometry.geoms)) == 3  # river + water_a + water_b
+
+
+def test_merge_keeps_unmatched_water_features_separate() -> None:
+    river = OSMAreaFeature(
+        osm_id=1, osm_type="way", name="Sava", category="river", geometry=LineString([(0.0, -0.5), (0.0, 0.5)])
+    )
+    overlapping_water = OSMAreaFeature(
+        osm_id=2, osm_type="way", name=None, category="water",
+        geometry=Polygon([(-0.1, -0.2), (0.1, -0.2), (0.1, 0.2), (-0.1, 0.2), (-0.1, -0.2)]),
+    )
+    unrelated_lake = OSMAreaFeature(
+        osm_id=3, osm_type="way", name="Neko jezero", category="water",
+        geometry=Polygon([(9.0, 9.0), (9.1, 9.0), (9.1, 9.1), (9.0, 9.1), (9.0, 9.0)]),
+    )
+
+    result = merge_overlapping_river_water_features([river, overlapping_water, unrelated_lake])
+
+    assert len(result) == 2
+    names = {f.name for f in result}
+    assert "Sava" in names
+    assert "Neko jezero" in names
+    # Nepovezano jezero mora ostati NEDIRNUTO (obican Polygon, ne GeometryCollection).
+    lake_result = next(f for f in result if f.osm_id == 3)
+    assert lake_result.geometry.geom_type == "Polygon"
+
+
+def test_merge_does_not_touch_park_or_national_park_features() -> None:
+    river = OSMAreaFeature(
+        osm_id=1, osm_type="way", name="Sava", category="river", geometry=LineString([(0.0, -0.5), (0.0, 0.5)])
+    )
+    park = OSMAreaFeature(
+        osm_id=2, osm_type="way", name="Gradski park", category="park",
+        geometry=Polygon([(0.0, 0.0), (0.05, 0.0), (0.05, 0.05), (0.0, 0.05), (0.0, 0.0)]),
+    )
+
+    result = merge_overlapping_river_water_features([river, park])
+
+    # Park preklapa liniju rijeke geometrijski, ali merge namjerno gleda SAMO
+    # (river, water) parove -- park mora ostati nedirnut i odvojen.
+    assert len(result) == 2
+    park_result = next(f for f in result if f.osm_id == 2)
+    assert park_result.geometry.geom_type == "Polygon"
+
+
+def test_merge_returns_empty_list_for_empty_input() -> None:
+    assert merge_overlapping_river_water_features([]) == []
+

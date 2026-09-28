@@ -109,8 +109,9 @@ Prije ovog koraka je otkriveno da frontend nikad nije implementirao originalni b
 - [x] Novi `ui/resultsPanel.js` (lista visible/blocked/area feature-a) i `ui/actionButtons.js` ("Koristi moju lokaciju" / "Šta gledam?" dugmad).
 - [x] `ui/debugPanel.js` prošireno -- kolabsiran location-quality panel (brief sekcija 15/57), pun prikaz GPS accuracy/phone altitude/DEM elevation/confidence/debug brojača nakon analize.
 - [x] `main.js` prepisan -- puna orkestracija observer -> sector -> analyze -> rezultati (mapa + panel + debug).
-- [x] Prvi ručni test (Sava kod Orašca) je urađen -- otkrio je dva otvorena pitanja, ne potvrdio da je sve u redu: (1) rijeka se pojavljuje kao DVA odvojena rezultata (`river` + `water`) jer OSM tako mapira veće rijeke -- odluka o UX rješenju čeka korisnika; (2) neobjašnjeno nizak `visible_fraction` (40-50%) na vrlo bliskoj rijeci -- dodata `AnalyzedAreaFeature.samples` dijagnostika (isti princip kao `include_profile` za tačkaste feature-e) da se uzrok utvrdi brojevima, ne nagađanjem. Detalji u arhitekturi, sekcija 29.
-- [ ] `pytest` za novu `samples` dijagnostiku i ručna provjera stvarnog Sava slučaja su sljedeći korak, prije commit-a ove izmjene i prije push-a cijele Phase 10.
+- [x] Prvi ručni test (Sava kod Orašca) je urađen -- otkrio je dva otvorena pitanja: (1) rijeka se pojavljivala kao DVA odvojena rezultata (`river` + `water`) jer OSM tako mapira veće rijeke -- **riješeno** geometrijskim spajanjem (`merge_overlapping_river_water_features`, arhitektura sekcija 30), korisnikov izabrani pristup; (2) neobjašnjeno nizak `visible_fraction` (40-50%) na vrlo bliskoj rijeci -- dodata `AnalyzedAreaFeature.samples` dijagnostika da se uzrok utvrdi brojevima (arhitektura sekcija 29), i dalje čeka konkretne koordinate.
+- [x] `pytest` pokrenut (prvi put od strane asistenta -- `pip install` preko `device_bash` bridge-a je od sada moguć, vidi arhitekturu sekcija 29 napomena) -- **157 passed, 0 failed**, uključujući 6 novih merge testova.
+- [ ] Ručna provjera stvarnog Sava slučaja (uz konkretne koordinate i `?include_profile=true`) je sljedeći korak prije push-a cijele Phase 10.
 
 Sljedeća faza nakon verifikacije: **Phase 11+ -- phone altitude diagnostics (dodatna provjera/dorada), device orientation/compass** (brief sekcija 54).
 

@@ -47,7 +47,7 @@ import time
 from typing import Literal
 
 import httpx
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
 from shapely.ops import polygonize, unary_union
 
 from app.core.config import Settings
@@ -86,6 +86,11 @@ class OSMAreaFeature:
     (standardni Shapely/GeoJSON red), NE (lat, lon) kako Overpass/OSM
     imenuje polja -- namjerno i eksplicitno testirano
     (`tests/test_osm_areas.py`), jer je zamjena redosleda čest izvor bugova.
+
+    `geometry` je `GeometryCollection` samo za feature-e SASTAVLJENE preko
+    `merge_overlapping_river_water_features()` (rijeka + preklapajuća vodena
+    površina spojene u jedan feature, vidi tu funkciju) -- inače je uvijek
+    LineString/Polygon/MultiPolygon direktno iz Overpass parsinga.
     """
 
     __slots__ = ("osm_id", "osm_type", "name", "category", "geometry")
@@ -96,7 +101,7 @@ class OSMAreaFeature:
         osm_type: Literal["way", "relation"],
         name: str | None,
         category: AreaCategory,
-        geometry: LineString | Polygon | MultiPolygon,
+        geometry: LineString | Polygon | MultiPolygon | GeometryCollection,
     ) -> None:
         self.osm_id = osm_id
         self.osm_type = osm_type
@@ -311,3 +316,75 @@ class OverpassAreaService:
                     )
                 )
         return features
+
+
+def merge_overlapping_river_water_features(features: list[OSMAreaFeature]) -> list[OSMAreaFeature]:
+    """Spaja `river` + preklapajuci `water` feature u JEDAN rezultat.
+
+    Otkriveno rucčnim testiranjem (Sava kod Orašca, vidi
+    docs/architecture-feasibility-review.md, sekcija 29): OSM veće rijeke
+    tipično mapira NA OBA NAČINA istovremeno -- imenovana `waterway=river`
+    linija (centralni tok) I bezimen `natural=water` poligon (stvarna vodena
+    površina, obala-do-obale). Ovo su DVA različita OSM elementa (različit
+    `osm_id`) koja predstavljaju ISTI fizički objekat -- bez spajanja,
+    korisnik u rezultatima vidi "Sava" i "Vodena površina" kao dva odvojena
+    rezultata za istu rijeku, što je zbunjujuće iako je svaki pojedinačno
+    tačan.
+
+    Spajanje je STVARNO GEOMETRIJSKO (`.intersects()`), ne po imenu ili
+    blizini -- ime je često potpuno odsutno na `water` poligonu, pa se
+    name-matching ne bi mogao osloniti ni na šta u baš ovom slučaju.
+    Spojena geometrija je `GeometryCollection([river, *matched_waters])` --
+    `area_visibility.sample_points_for_geometry()` već rekurzivno sample-uje
+    svaku komponentu GeometryCollection-a (linija duz toka, poligon kao
+    grid), pa se sam visibility algoritam NE MIJENJA, samo ulazni feature-i
+    -- kombinovani `visible_fraction` prirodno pokriva OBA geometrijska
+    izvora umjesto da se dva odvojeno računata rezultata naknadno spajaju
+    (izbjegnuto jer bi zahtijevalo proizvoljno težinjenje dva različita
+    sample seta).
+
+    Namjerno OGRANIČENO na (river, water) parove -- park/national_park
+    preklapanje nije prijavljeno kao problem (različita fizička pojava, ne
+    isti objekat mapiran dvaput), pa se ne dira (YAGNI). Ako jedan `river`
+    preklapa VIŠE `water` feature-a (rijedak slučaj, npr. rukavci), svi se
+    spajaju u isti GeometryCollection. Ako jedan `water` feature preklapa
+    VIšE `river`-a (npr. sutok), pripada PRVOM rijeci koja ga zahvati u
+    ulaznoj listi -- rijedak edge case, prihvatljivo pojednostavljenje za
+    MVP (nema kanonskog "ispravnog" vlasnika u takvom slučaju).
+
+    O(n*m) parovanje (n rijeka * m voda) -- broj area feature-a po pozivu je
+    mali (desetine, ograničeno Overpass radijusom), zanemarivo naspram
+    Overpass/DEM poziva koji dominiraju vremenom izvršavanja.
+    """
+    rivers = [f for f in features if f.category == "river"]
+    waters = [f for f in features if f.category == "water"]
+    other_features = [f for f in features if f.category not in ("river", "water")]
+
+    consumed_water_ids: set[int] = set()
+    merged: list[OSMAreaFeature] = []
+
+    for river in rivers:
+        matched_waters = [
+            water
+            for water in waters
+            if water.osm_id not in consumed_water_ids and river.geometry.intersects(water.geometry)
+        ]
+
+        if not matched_waters:
+            merged.append(river)
+            continue
+
+        consumed_water_ids.update(water.osm_id for water in matched_waters)
+        merged.append(
+            OSMAreaFeature(
+                osm_id=river.osm_id,
+                osm_type=river.osm_type,
+                name=river.name,
+                category="river",
+                geometry=GeometryCollection([river.geometry, *(water.geometry for water in matched_waters)]),
+            )
+        )
+
+    leftover_waters = [water for water in waters if water.osm_id not in consumed_water_ids]
+
+    return merged + leftover_waters + other_features

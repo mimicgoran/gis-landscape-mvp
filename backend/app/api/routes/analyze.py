@@ -25,7 +25,7 @@ from app.services.elevation import ElevationService
 from app.services.geometry import build_sector_polygon, select_candidates
 from app.services.location_quality import build_location_quality, compute_observer_elevation_m
 from app.services.osm import OverpassError, OverpassService
-from app.services.osm_areas import OverpassAreaError, OverpassAreaService
+from app.services.osm_areas import OverpassAreaError, OverpassAreaService, merge_overlapping_river_water_features
 from app.services.visibility import check_visibility, resolve_target_elevation
 
 router = APIRouter(tags=["analyze-dev"])
@@ -164,6 +164,13 @@ def get_analyze_preview(
         raw_area_features = asyncio.run(_overpass_area_service.fetch_area_features_in_radius(lat, lon, radius_km))
     except OverpassAreaError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # Spaja rijeku i preklapajucu vodenu povrsinu u jedan rezultat -- OSM ih
+    # cesto mapira oba puta za istu fizicku rijeku (otkriveno rucnim
+    # testiranjem, Sava kod Orasca; vidi docs/architecture-feasibility-review.md,
+    # sekcija 29/30). Mora ici PRIJE sector-intersect/sampling koraka ispod,
+    # da se sample-uje spojena geometrija u jednom prolazu.
+    raw_area_features = merge_overlapping_river_water_features(raw_area_features)
 
     sector_polygon = build_sector_polygon(lat, lon, heading_deg, fov_deg, radius_km)
 
