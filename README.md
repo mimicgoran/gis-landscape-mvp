@@ -83,8 +83,8 @@ docs/       Arhitektura, brief, i ostala dokumentacija koja nastaje kroz faze
 
 - [x] `visibility.py` -- `check_visibility()` (geodesic sample tačke duž linije, batch DEM sampling, granični slučaj: jednak ugao = vidljivo ne blokirano, "DEM gap" se ne tretira kao blokada) i `resolve_target_elevation()` (OSM `ele` prioritet, DEM fallback, razlika > 50 m se samo bilježi).
 - [x] Dev endpoint `GET /api/v1/analyze/preview` -- pun pipeline (observer + location quality -> OSM kandidati -> DEM -> line-of-sight).
-- [x] 96 backend testova prolazi; ručno potvrđeno protiv prave Kopaonik lokacije (plauzibilna podjela visible/blocked, nakon jednog tranzitornog Overpass 503 riješenog ručnim retry-jem).
-- [x] Automatski Overpass retry dodat kao reakcija na taj 503 (`overpass_max_retries=2`, `overpass_retry_backoff_s=2.0`) -- kod napisan i testovi prošireni, **korisnička `pytest` potvrda još nije urađena**.
+- [x] 148 backend testova prolazi (potvrđeno svježim `pytest` pokretanjem nakon Phase 8+9); ručno potvrđeno protiv prave Kopaonik lokacije (plauzibilna podjela visible/blocked, nakon jednog tranzitornog Overpass 503 riješenog ručnim retry-jem).
+- [x] Automatski Overpass retry dodat kao reakcija na taj 503 (`overpass_max_retries=2`, `overpass_retry_backoff_s=2.0`) -- kod napisan i testovi prošireni, **korisnička `pytest` potvrda urađena (148 passed)**.
 
 ## Trenutni status (Phase 9 -- proširenje scope-a: rijeke/vodene površine/parkovi/nacionalni parkovi)
 
@@ -94,10 +94,10 @@ Nakon Phase 8, eksplicitno je odbačen "samo vrhovi" scope -- korisnik pita i "k
 - [x] NOVI area-feature pipeline (`osm_areas.py`, `area_visibility.py`): rijeke/vodene površine/parkovi/nacionalni parkovi sa STVARNOM geometrijom (way -> LineString/Polygon, relation -> Polygon preko `shapely.ops.polygonize()`), geometrijski intersect sa viewing-sector poligonom (`geometry.build_sector_polygon()`), i "mini-viewshed" sampling (više sample tačaka duž presječenog dijela, svaka provjerena preko postojećeg `check_visibility()`, agregirano u `visible_fraction`).
 - [x] Novi dev endpoint `GET /api/v1/osm/areas` (sirova geometrija, GeoJSON-oblik) i novo `"area_features"` polje u `/api/v1/analyze/preview`.
 - [x] Novi/prošireni testovi: `test_osm_areas.py`, `test_area_visibility.py`, plus izmjene u `test_geometry.py`/`test_osm.py`/`test_analyze.py`.
-- [ ] **VAŽNO -- neprovjerena pretpostavka:** cijeli relation→polygon pipeline pretpostavlja da Overpass `out geom;` uključuje punu geometriju relacijskih članova direktno u odgovoru (dokumentovano, standardno ponašanje, ali NIJE moglo biti empirijski testirano iz razvojnog okruženja -- vidi sekciju 27). Prva stvar za ručnu provjeru preko `/api/v1/osm/areas`.
-- [ ] Korisnička `pytest` i ručna Swagger verifikacija još nisu urađene za Phase 9 kod -- commit/push čeka to (vidi sekciju 26-27 arhitekture).
+- [x] **Pretpostavka o Overpass `out geom;` na relacijama -- empirijski potvrđena:** relacija "Национални парк Копаоник" (`osm_id=9499191`) i još dvije relacije (park, water) su preko `/api/v1/osm/areas` vraćene kao validni, ne-degenerisani poligoni na živim podacima (vidi arhitekturu, sekciju 27).
+- [x] Korisnička `pytest` (148 passed) i ručna Swagger verifikacija (`/osm/areas`, `/osm/points`, `/analyze/preview`) su urađene. Dodatno: pošto je prvi `/analyze/preview` poziv (radius 20 km) vratio 0 vidljivih od 35 feature-a, urađena je ručna provjera terrain profila (`include_profile=true`, radius 5 km) -- ručni `atan2` preračun potvrdio je da je "sve blokirano" tačan rezultat za tu konkretnu posmatračku tačku (bliska uzvišica ~800 m dalje, viša od posmatrača), ne bug. Detalji u arhitekturi, sekcija 27.
 
-Sljedeća faza (nakon verifikacije Phase 8 retry-ja i Phase 9): **Phase 10+ -- mobile geolocation, phone altitude diagnostics, device orientation/compass** (frontend integracija stvarnih senzora, nakon što je backend pipeline dokazan preko manual/dev endpointa na širem setu geografskih feature-a).
+Phase 8 + Phase 9 su commit/push-ready. Sljedeća faza: **Phase 10+ -- mobile geolocation, phone altitude diagnostics, device orientation/compass** (frontend integracija stvarnih senzora, nakon što je backend pipeline dokazan preko manual/dev endpointa na širem setu geografskih feature-a).
 
 ## Licenca podataka
 
