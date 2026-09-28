@@ -35,6 +35,22 @@ body {
   font-size: 14px;
 }
 
+/* KRITIČNO: `display: flex` iznad nenamjerno pregazi browserov default
+   `[hidden] { display: none }` -- autorski CSS pravilo (bilo koje
+   specifičnosti) uvijek pobjeđuje user-agent default, pa bez ovog pravila
+   ispod element ostaje vizuelno vidljiv (prazna crvena traka, visine samo
+   od padding-a) čak i kad JS postavi `statusBanner.hidden = true`. Nađeno
+   ručnom DevTools inspekcijom na desktopu (real-device bug, drugi krug
+   telefon testova) -- element se prikazivao ODMAH pri učitavanju stranice,
+   bez ijedne pozvane showBanner(), i klik na X dugme nije imao nikakav
+   vidljiv efekat jer je `hidden` sve vrijeme bio tačno postavljen, samo
+   ignorisan. Atribut-selektor ima veću specifičnost od same klase, pa ovo
+   pravilo garantovano pobjeđuje `.status-banner` kad je god `hidden`
+   prisutan. */
+.status-banner[hidden] {
+  display: none;
+}
+
 .status-banner-close {
   flex: 0 0 auto;
   background: rgba(255, 255, 255, 0.15);
