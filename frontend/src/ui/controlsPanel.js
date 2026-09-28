@@ -61,7 +61,7 @@ export function initControlsPanel({ onChange, onCompassError }) {
   panel.replaceChildren();
 
   const heading = createSliderRow({
-    label: "Heading",
+    label: "Smer",
     min: 0,
     max: 360,
     step: 1,
@@ -74,7 +74,7 @@ export function initControlsPanel({ onChange, onCompassError }) {
   });
 
   const fov = createSliderRow({
-    label: "Field of View",
+    label: "Vidno polje",
     min: FOV_MIN_DEG,
     max: FOV_MAX_DEG,
     step: 1,
@@ -87,7 +87,7 @@ export function initControlsPanel({ onChange, onCompassError }) {
   });
 
   const radius = createSliderRow({
-    label: "Radius",
+    label: "Radijus",
     min: RADIUS_MIN_KM,
     max: RADIUS_MAX_KM,
     step: 1,
