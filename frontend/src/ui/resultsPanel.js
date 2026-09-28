@@ -6,25 +6,31 @@
  * Namjerno prost DOM (liste, ne tabela/framework) -- brief tačka 35: "Nemoj
  * praviti komplikovan UI framework samo zbog ovoga."
  *
- * Dizajn prilagođen nakon prvog pravog telefon testa (korisnička odluka,
- * vidi docs/architecture-feasibility-review.md, sekcija 33):
- * - JEDNA ravna lista, bez "Tačke"/"Rijeke i vode" sekcija -- korisnik je
- *   ocijenio da odvojene sekcije nisu potrebne za jedan pogled u sektor.
+ * Dizajn prilagođen nakon prvog i drugog pravog telefon testa (korisnička
+ * odluka, vidi docs/architecture-feasibility-review.md, sekcija 33):
+ * - JEDNA ravna lista, bez "Tačke"/"Rijeke i vode" sekcija.
  * - Svaki red pokazuje SAMO ime i kategoriju (jednom) -- distance/bearing/
- *   procenat vidljivosti su namjerno uklonjeni iz liste (bili su duplirani
- *   sa VIDLJIVO/DJELIMIČNO/ZAKLONJENO bedžom, koji već nosi tu informaciju
- *   na jednostavniji, skalabilniji način). Puni brojevi i dalje postoje u
- *   `analysis` objektu i debug panelu za onoga kome trebaju.
- * - Feature bez imena (npr. bezimeni `natural=water` poligon koji OSM
- *   mapiranje ostavi odvojen od imenovane rijeke i pored merge fix-a iz
- *   Phase 10 -- vidi arhitekturu sekcija 30) se NE prikazuje -- korisnička
- *   odluka: neimenovan objekat nije korisna informacija planinaru.
- * - Ekavica (Reka/DELIMIČNO), ne ijekavica -- korisnička odluka.
+ *   procenat vidljivosti su namjerno uklonjeni (bili su duplirani sa
+ *   VIDLJIVO/DELIMIČNO/ZAKLONJENO bedžom).
+ * - Feature bez imena se ne prikazuje. Feature čije je ime IDENTIČNO
+ *   generičkoj kategoriji (npr. OSM `name=Vodena površina` -- stvaran
+ *   slučaj, ne pretpostavka, nađen u drugom telefon testu) se tretira kao
+ *   da nema pravo ime -- takođe se ne prikazuje.
+ * - Feature-i istog imena se spajaju u JEDAN red (npr. Dunav se u OSM-u
+ *   često sastoji od više odvojenih `way` segmenata sa istim `name` tagom,
+ *   svaki sa svojom vlastitom vidljivošću) -- prikazuje se najbolja
+ *   (najvidljivija) vrijednost među duplikatima, ne svaki segment posebno.
+ * - Ćirilična OSM imena (npr. "Дунав") se transliterišu u latinicu
+ *   (`utils/text.js`) da se ne mješaju dva pisma u istoj listi -- kategorije
+ *   i bedževi su već na latinici.
+ * - Ekavica (Reka/DELIMIČNO), ne ijekavica.
  *
  * AI opis (Phase 13) NIJE ovdje -- ovaj panel prikazuje samo strukturirane
  * GIS rezultate, po dizajnu "GEOSPATIAL ANALYSIS FIRST, AI SECOND" (brief
  * sekcija 7).
  */
+
+import { cyrillicToLatin } from "../utils/text.js";
 
 const POINT_CATEGORY_LABELS = {
   peak: "Vrh",
@@ -39,8 +45,9 @@ const AREA_CATEGORY_LABELS = {
   national_park: "Nacionalni park",
 };
 
-// Badge tekst i sortirajući prioritet (niže = prikazuje se prije) --
-// visible mora biti vizuelno najistaknutiji/prvi (brief tačka 35).
+// Badge tekst i sortirajući prioritet (niže = prikazuje se prije / smatra
+// se "boljim" kad se spajaju duplikati istog imena) -- visible mora biti
+// vizuelno najistaknutiji/prvi (brief tačka 35).
 const VISIBILITY_RANK = { visible: 0, partially_visible: 1, blocked: 2 };
 const VISIBILITY_BADGE_LABELS = {
   visible: "VIDLJIVO",
@@ -108,9 +115,13 @@ export function initResultsPanel() {
 
 /**
  * Spaja tačkaste (visible_features + blocked_features) i area feature-e u
- * JEDNU listu jednoobraznih redova, izbacuje neimenovane feature-e, i
- * sortira: visible prvo, zatim partially_visible, zatim blocked (brief
- * tačka 35); unutar iste grupe, bliži prvo.
+ * JEDNU listu jednoobraznih redova:
+ * 1. izbacuje feature-e bez pravog imena (nema imena, ili je ime identično
+ *    generičkoj kategoriji -- vidi modul docstring),
+ * 2. spaja duplikate istog imena u jedan red (najbolja vidljivost, najbliža
+ *    distanca -- vidi `mergeDuplicateNames`),
+ * 3. sortira: visible prvo, zatim partially_visible, zatim blocked (brief
+ *    tačka 35); unutar iste grupe, bliži prvo.
  */
 function buildRows(analysis) {
   const rows = [];
@@ -125,14 +136,42 @@ function buildRows(analysis) {
     rows.push(areaFeatureToRow(feature));
   }
 
-  return rows
-    .filter((row) => row.name) // bez imena -- ne prikazuj (korisnička odluka)
-    .sort((a, b) => VISIBILITY_RANK[a.visibility] - VISIBILITY_RANK[b.visibility] || a.distanceKm - b.distanceKm);
+  const named = rows.filter((row) => row.name && row.name !== row.categoryLabel);
+
+  return mergeDuplicateNames(named).sort(
+    (a, b) => VISIBILITY_RANK[a.visibility] - VISIBILITY_RANK[b.visibility] || a.distanceKm - b.distanceKm
+  );
+}
+
+/**
+ * Grupiše redove po (ime, kategorija) paru -- ista imena u različitim
+ * kategorijama (npr. selo i rijeka sa istim imenom) se namjerno NE spajaju,
+ * to bi bilo pogrešno. Za svaku grupu bira najbolju (najnižu rank) vidljivost
+ * i najmanju distancu među duplikatima -- "ako je vidljivo makar jednom,
+ * tretiraj ga kao vidljivo, ne prikazuj dva puta" (korisnička odluka).
+ */
+function mergeDuplicateNames(rows) {
+  const byKey = new Map();
+
+  for (const row of rows) {
+    const key = `${row.name}\u0000${row.categoryLabel}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...row });
+      continue;
+    }
+    if (VISIBILITY_RANK[row.visibility] < VISIBILITY_RANK[existing.visibility]) {
+      existing.visibility = row.visibility;
+    }
+    existing.distanceKm = Math.min(existing.distanceKm, row.distanceKm);
+  }
+
+  return Array.from(byKey.values());
 }
 
 function pointFeatureToRow(feature, visibility) {
   return {
-    name: feature.name,
+    name: cyrillicToLatin(feature.name),
     categoryLabel: POINT_CATEGORY_LABELS[feature.category] ?? feature.category,
     visibility,
     distanceKm: feature.distance_km,
@@ -141,7 +180,7 @@ function pointFeatureToRow(feature, visibility) {
 
 function areaFeatureToRow(feature) {
   return {
-    name: feature.name,
+    name: cyrillicToLatin(feature.name),
     categoryLabel: AREA_CATEGORY_LABELS[feature.category] ?? feature.category,
     visibility: feature.visibility,
     distanceKm: feature.closest_distance_km,

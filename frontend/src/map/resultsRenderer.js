@@ -16,6 +16,8 @@
  * faza ostane frontend-fokusirana bez dodatnih backend izmjena.
  */
 
+import { cyrillicToLatin } from "../utils/text.js";
+
 let GraphicClass;
 let PointClass;
 let symbolsModule;
@@ -67,7 +69,7 @@ function createFeatureGraphic(feature, symbol, isVisible) {
     symbol,
     attributes: { osmId: feature.osm_id },
     popupTemplate: {
-      title: feature.name ?? "(bez imena)",
+      title: cyrillicToLatin(feature.name) ?? "(bez imena)",
       content:
         `${feature.distance_km.toFixed(1)} km, ${Math.round(feature.bearing_deg)}°, ` +
         `${Math.round(feature.elevation_m)} m -- ${isVisible ? "VIDLJIVO" : "ZAKLONJENO"}`,
