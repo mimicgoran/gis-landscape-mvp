@@ -14,6 +14,20 @@ status u istom dokumentu):
   target samo ako je njen elevation angle STROGO veći od target ugla
   (`>`, ne `>=`) -- tačka čiji je ugao jednak target uglu dodiruje liniju
   posmatranja tačno na nivou cilja, što nije stvarna prepreka ispred njega.
+- Ugaona tolerancija (dodano Phase 10, nakon Sava/Orašac istrage -- vidi
+  docs/architecture-feasibility-review.md, sekcija 31): terenska tačka se
+  poredi ne sa golim target uglom, nego sa `target_angle_deg + tolerance`,
+  gdje je `tolerance = atan(Settings.dem_vertical_accuracy_m / distance_m)`
+  IZRAČUNATO ZA TU KONKRETNU terensku tačku (ne za target). Razlog: DEM
+  vrijednost ima dokumentovanu vertikalnu nesigurnost od par metara
+  (sekcija 26); na kratkim distancama (stotinjak metara) ta nesigurnost
+  odgovara ugaonoj grešci reda veličine 1°+, uporedivoj sa samim target
+  uglom -- bez tolerancije, jedan "bučan" 30 m DEM piksel (rezidualna
+  vegetacija u Copernicus DSM-izvedenom DEM-u, ili sitna stvarna
+  neravnina terena) lažno blokira cilj koji bi golim okom očigledno bio
+  vidljiv. Tolerancija je namjerno primijenjena SAMO na terensku tačku, ne
+  i na target ugao (pojednostavljenje -- dovoljno za MVP, ne pretenduje da
+  modeluje kombinovanu nesigurnost oba ugla).
 - "DEM gap" (terenska tačka bez dostupne elevacije, npr. rijedak nodata
   slučaj usred inače pokrivenog tile-a) se NE tretira kao blokada niti kao
   fatalna greška -- tačka se jednostavno preskače u max-angle računu, a
@@ -65,6 +79,23 @@ def _elevation_angle_deg(elevation_m: float, observer_elevation_m: float, distan
     """`angle = atan2(elevation - observer_elevation, distance)` (sekcija 9,
     koraci 4-5), u stepenima radi čitljivijeg debug outputa."""
     return math.degrees(math.atan2(elevation_m - observer_elevation_m, distance_m))
+
+
+def _angular_tolerance_deg(distance_m: float, vertical_accuracy_m: float) -> float:
+    """Pretvara DEM vertikalnu nesigurnost (`vertical_accuracy_m`, tipično
+    par metara -- Settings.dem_vertical_accuracy_m) u ugaonu toleranciju NA
+    DATOJ DISTANCI: `atan(vertical_accuracy_m / distance_m)`. Namjerno
+    distance-scaled, ne fiksni broj stepeni -- ista vertikalna greška od
+    npr. 2 m znači ~3.8° na 30 m ali samo ~0.004° na 30 km, što je tačno
+    ponašanje koje želimo (blaga tolerancija tik uz posmatrača gdje je
+    algoritam najosjetljiviji na DEM šum, zanemarljiva na velikim
+    distancama gdje već postoji dovoljno terenskih tačaka da usrednje
+    slučajni šum). Vidi modul docstring i
+    docs/architecture-feasibility-review.md, sekcija 31, za empirijsko
+    obrazloženje (Sava/Orašac test slučaj)."""
+    if distance_m <= 0:
+        return 90.0
+    return math.degrees(math.atan2(vertical_accuracy_m, distance_m))
 
 
 def check_visibility(
@@ -120,7 +151,8 @@ def check_visibility(
         if max_terrain_angle_deg is None or angle_deg > max_terrain_angle_deg:
             max_terrain_angle_deg = angle_deg
 
-        if angle_deg > target_angle_deg:
+        tolerance_deg = _angular_tolerance_deg(distance_m, settings.dem_vertical_accuracy_m)
+        if angle_deg > target_angle_deg + tolerance_deg:
             visible = False
 
     profile.append(ProfilePoint(distance_m=target_distance_m, elevation_m=target_elevation_m))

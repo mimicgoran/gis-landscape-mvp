@@ -120,6 +120,68 @@ def test_check_visibility_equal_angle_is_not_blocked(monkeypatch):
     assert result.visible is True
 
 
+def test_check_visibility_tolerance_allows_marginal_bump_at_short_range(monkeypatch):
+    """Phase 10 (Sava/Orašac istraga, sekcija 31): terenska tačka na kratkoj
+    distanci čiji ugao premašuje target ugao za MANJE od DEM-tačnošću
+    izvedene tolerancije na toj distanci i dalje mora biti VISIBLE -- ovo je
+    tačno slučaj koji je prije ove izmjene lažno blokirao blizu rijeke."""
+    observer_elevation_m = 100.0
+    distance_m = 60.0
+    tolerance_deg = visibility_module._angular_tolerance_deg(distance_m, _settings.dem_vertical_accuracy_m)
+    assert tolerance_deg > 1.5  # sanity: na 60 m sa default 2 m tačnošću, tolerancija je > 1.5 stepeni
+
+    bump_deg = 1.5  # namjerno manje od tolerancije
+    terrain_elevation_m = observer_elevation_m + math.tan(math.radians(bump_deg)) * distance_m
+
+    _patch_intermediate_points(monkeypatch, [(43.0, 20.001, distance_m)])
+    fake_service = _FakeElevationService(profile_elevations=[terrain_elevation_m])
+
+    result = check_visibility(
+        observer_latitude=43.0,
+        observer_longitude=20.0,
+        observer_elevation_m=observer_elevation_m,
+        target_latitude=43.0,
+        target_longitude=20.002,
+        target_elevation_m=observer_elevation_m,  # target_angle_deg == 0
+        target_distance_m=200.0,
+        elevation_service=fake_service,
+        settings=_settings,
+    )
+
+    assert result.visible is True
+    assert result.max_terrain_angle_deg > result.target_angle_deg  # bump JESTE veći od golog target ugla...
+    # ...ali tolerancija je apsorbuje, pa cilj ostaje vidljiv
+
+
+def test_check_visibility_tolerance_does_not_mask_large_bump(monkeypatch):
+    """Suprotan slučaj -- terenska tačka čiji ugao premašuje target ugao za
+    VIŠE od tolerancije i dalje mora blokirati cilj (tolerancija ne smije
+    učiniti algoritam beskorisnim za stvarne prepreke)."""
+    observer_elevation_m = 100.0
+    distance_m = 60.0
+    tolerance_deg = visibility_module._angular_tolerance_deg(distance_m, _settings.dem_vertical_accuracy_m)
+
+    bump_deg = tolerance_deg + 1.5  # namjerno znatno više od tolerancije
+    terrain_elevation_m = observer_elevation_m + math.tan(math.radians(bump_deg)) * distance_m
+
+    _patch_intermediate_points(monkeypatch, [(43.0, 20.001, distance_m)])
+    fake_service = _FakeElevationService(profile_elevations=[terrain_elevation_m])
+
+    result = check_visibility(
+        observer_latitude=43.0,
+        observer_longitude=20.0,
+        observer_elevation_m=observer_elevation_m,
+        target_latitude=43.0,
+        target_longitude=20.002,
+        target_elevation_m=observer_elevation_m,
+        target_distance_m=200.0,
+        elevation_service=fake_service,
+        settings=_settings,
+    )
+
+    assert result.visible is False
+
+
 def test_check_visibility_dem_gap_does_not_block(monkeypatch):
     _patch_intermediate_points(monkeypatch, [(43.0, 20.005, 1000.0), (43.0, 20.01, 3000.0)])
     fake_service = _FakeElevationService(profile_elevations=[None, 900.0])

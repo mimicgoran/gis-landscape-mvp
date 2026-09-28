@@ -33,8 +33,13 @@ class Settings(BaseSettings):
 
     # --- Observer / elevation (Phase 7+) ---
     # Prosječna visina očiju odrasle osobe iznad tla. Konfigurabilno ovdje,
-    # namjerno NE izloženo u UI-ju u MVP-u (brief, tačka 10).
-    observer_eye_height_m: float = 1.7
+    # namjerno NE izloženo u UI-ju u MVP-u (brief, tačka 10). Podignuto sa
+    # 1.7 na 1.85 m (korisnička odluka, Phase 10 Sava/Orašac istraga) --
+    # 1.7 m je bio konzervativan prosjek, 1.85 m je bliže prosječnoj visini
+    # odraslog posmatrača koji nešto uspravnije stoji/drži telefon podignut;
+    # razlika je mala (+15 cm) i ne mijenja suštinski zaključke, ali malo
+    # smanjuje broj graničnih "blocked" slučajeva na kratkim distancama.
+    observer_eye_height_m: float = 1.85
 
     # --- Location quality pragovi (Phase 7) ---
     # Vidi architecture-feasibility-review.md, sekcija 6, za puno obrazloženje.
@@ -58,6 +63,20 @@ class Settings(BaseSettings):
     # mali radijusi -> zanemarljiv efekat). Feature-flag za Phase 2.
     enable_earth_curvature_correction: bool = False
     earth_curvature_refraction_coefficient: float = 0.13
+    # DEM vertikalna tačnost -- koristi se kao ugaona TOLERANCIJA u
+    # check_visibility() (Phase 10, dodano nakon Sava/Orašac istrage:
+    # docs/architecture-feasibility-review.md, sekcija 31). Copernicus DEM
+    # GLO-30 ima dokumentovanu tipičnu vertikalnu tačnost reda veličine
+    # 1-4 m (arhitekturni dokument, sekcija 26); biramo 2.0 m kao razumnu
+    # sredinu tog opsega, ne pesimistički gornji kraj. Na kratkim
+    # distancama (stotinjak metara -- npr. riječna obala tik uz
+    # posmatrača) i par metara DEM šuma/rezidualne vegetacije (Copernicus
+    # DEM je DSM-izveden) daje ugaonu grešku od preko 1°, što je uporedivo
+    # sa samim target uglom -- bez ove tolerancije, pojedinačni "bučan"
+    # piksel lažno "blokira" cilj koji je u stvarnosti jasno vidljiv.
+    # NIJE primijenjeno na target_angle_deg (samo na terensku tačku) --
+    # namjerna MVP pojednostavljenje, vidi check_visibility docstring.
+    dem_vertical_accuracy_m: float = 2.0
 
     # --- Candidate ranking (Phase 5) ---
     # Ako sektor sadrži više kandidata nego što ima smisla obraditi kroz

@@ -832,6 +832,36 @@ Korisnik je izabrao "geometrijsko spajanje" opciju za rješavanje dupliranih riv
 
 **Pokrenuto od strane asistenta** (prvi put moguće u ovoj sesiji, vidi napomenu gore), u dva koraka: nakon dodavanja `samples` dijagnostike (sekcija 29) -- **151 passed, 0 failed** (148 prethodnih + 3 nova testa); nakon dodavanja merge funkcije (ova sekcija) -- **157 passed, 0 failed** (151 + 6 novih merge testova). Ovo POKRIVA sintetičku/mock geometriju (unit nivo) -- NE pokriva pravu Sava OSM geometriju iz Overpass-a (van dohvata odavde) niti pravi Kopaonik/Sava DEM slučaj u punom pipeline-u. Korisnička ručna Swagger provjera protiv STVARNE Sava lokacije je i dalje potreban sljedeći korak prije push-a -- vidi pitanje asistenta u razgovoru.
 
+## 31. Uzrok niskog visible_fraction (Sava/Orašac) -- potvrđeno i ublaženo ugaonom tolerancijom (28.09.2026)
+
+Korisnik je dao tačne koordinate (44.74396, 19.79281) i pokrenuo `/api/v1/analyze/preview?...&include_profile=true` na PRAVOJ Sava lokaciji. Rezultat je vraćen sa dva area feature-a: "Добрava" (river, 33% vidljivo) i "Сава" (river, 0% vidljivo, svih 5 sample-ova blokirano) -- BEZ duplikata "Vodena površina" (dedup fix iz sekcije 30 je potvrđen na pravim OSM podacima, radi ispravno).
+
+**Asistent je nezavisno provjerio DEM na tačnim koordinatama** (offline, direktno iz `Copernicus_DSM_COG_10_N44_00_E019_00_DEM.tif` preko `rasterio`, bez mreže): DEM elevacija posmatrača je 76.25 m. Teren u tom pojasu (poplavna ravnica/nasip pored Save) je gotovo ravan, ALI varira 71.5-82.4 m na susjednim 30 m pikselima na svega 30-90 m od posmatrača.
+
+**Analiza pravih `samples` podataka** (margina = `max_terrain_angle_deg - target_angle_deg`; pozitivna margina = blokirano po starom, strogom pravilu):
+
+| Feature | sample distance | margina (°) |
+|---|---|---|
+| Добрava #2 | 207 m | 2.267 |
+| Добрava #3 | 359 m | 1.507 |
+| Сава #1 | 279 m | 0.671 |
+| Сава #2 | 479 m | 0.096 |
+| Сава #3 | 316 m | 1.668 |
+| Сава #4 | 501 m | 1.223 |
+| Сава #5 | 560 m | 1.068 |
+
+**Zaključak (potvrđeno realnim brojevima, ne pretpostavka):** kod nije bio pogrešan -- `atan2`/poređenje su radili tačno po specifikaciji. Problem je bio strukturan: algoritam nije imao TOLERANCIJU za DEM vertikalnu nesigurnost, pa je i sitna, unutar-šuma razlika (npr. Сава #2, samo 0.096°) blokirala cilj isto strogo kao i znatno veća (Добрava #2, 2.267° -- ovo je verovatno stvaran, ako i mali, teren/nasip, ne čist šum).
+
+**Implementirana izmjena** (korisnička odluka, ova sesija):
+- `Settings.observer_eye_height_m`: 1.7 -> **1.85 m** (mala korekcija, sporedan efekat naspram tolerancije).
+- Nova `Settings.dem_vertical_accuracy_m = 2.0` (sredina dokumentovanog 1-4 m opsega za Copernicus GLO-30, sekcija 26 -- NE pesimistički gornji kraj).
+- Nova `visibility._angular_tolerance_deg(distance_m, vertical_accuracy_m) = atan(vertical_accuracy_m / distance_m)`, u stepenima -- namjerno SKALIRANO PO DISTANCI terenske tačke (ista vertikalna greška je ~3.8° na 30 m ali ~0.004° na 30 km -- tačno željeno ponašanje: popustljivije tik uz posmatrača gdje je algoritam najosjetljiviji, zanemarljivo na velikim distancama).
+- `check_visibility()` sad poredi terensku tačku sa `target_angle_deg + tolerance_deg(te tačke)`, ne sa golim `target_angle_deg`. Tolerancija se namjerno NE primjenjuje na sam target ugao (pojednostavljenje za MVP).
+
+**Očekivan efekat na realne brojeve iznad** (sa `dem_vertical_accuracy_m=2.0`, ne uzimajući u obzir malu promjenu eye height-a): tolerancija na 479 m je `atan(2/479)=0.239°` > margina 0.096° kod Сава #2 -> ta tačka postaje VISIBLE. Ostale margine (0.671-2.267°) premašuju čak i tolerantniju granicu izvedenu iz gornjeg kraja dokumentovane tačnosti (4 m), pa ostaju BLOCKED -- ovo je namjerno: tolerancija apsorbuje ČIST DEM šum, ne pretvara stvaran (makar i mali) teren/nasip u nevidljivu prepreku "od struje".
+
+**Status testiranja:** `python3 -m py_compile` OK; puni `pytest` (pokrenut od strane asistenta, isti pristup kao sekcija 30) -- **159 passed, 0 failed** (157 prethodnih + 2 nova testa za toleranciju: jedan potvrđuje da mala margina ispod tolerancije ostaje VISIBLE, drugi da margina veća od tolerancije i dalje ostaje BLOCKED). Egzaktna nova vrijednost `visible_fraction` za STVARNI Sava slučaj (kroz pravi API poziv, ne ručnu aproksimaciju) NIJE JOŠ potvrđena -- sljedeći korak je da korisnik ponovo pozove ISTI URL (ista opservacija, `include_profile=true`) i pošalje novi JSON, pošto backend (`--reload`) treba da automatski pokupi izmjene.
+
 ## Sljedeći korak
 
-Dokument je odobren (sekcija 0). Implementacija napreduje faza po fazu -- napredak i odluke iz svake faze se dodaju u ovaj dokument. Backend (Phase 1-9) je potpuno implementiran, testiran i verifikovan. Frontend Phase 10 (rezultati UI + mobile geolocation, spojeno -- sekcija 28) je implementiran; prvi ručni test je otkrio dva otvorena pitanja (sekcija 29) -- dupli river/water rezultati (riješeno geometrijskim spajanjem, sekcija 30, čeka live verifikaciju) i neobjašnjen nizak visible_fraction kod Save (čeka konkretne koordinate + `samples` dijagnostiku). Push i dalje čeka na to. Nakon toga, po originalnom redoslijedu (brief sekcija 54): Phase 11 (phone altitude diagnostics) i Phase 12 (device orientation/compass).
+Dokument je odobren (sekcija 0). Implementacija napreduje faza po fazu -- napredak i odluke iz svake faze se dodaju u ovaj dokument. Backend (Phase 1-9) je potpuno implementiran, testiran i verifikovan. Frontend Phase 10 (rezultati UI + mobile geolocation, spojeno -- sekcija 28) je implementiran; prvi ručni test je otkrio dva otvorena pitanja (sekcija 29). Oba su sada adresirana: dupli river/water rezultati riješeni geometrijskim spajanjem (sekcija 30) i POTVRĐENI na pravoj Sava OSM geometriji (dedup radi, nema više duplikata); nizak visible_fraction objašnjen i ublažen ugaonom tolerancijom izvedenom iz DEM vertikalne tačnosti (sekcija 31), uz malu korekciju eye height-a (1.7 -> 1.85 m). Pytest 159/159. Preostaje: korisnik treba ponovo pozvati isti Sava URL nakon reload-a backend-a da potvrdi TAČNU novu `visible_fraction` vrijednost kroz pravi API poziv (ne asistentovu ručnu aproksimaciju) -- tek nakon toga slijedi push četiri lokalna commit-a (Phase 10 UI, samples dijagnostika, river/water merge, tolerancija/eye height). Nakon toga, po originalnom redoslijedu (brief sekcija 54): Phase 11 (phone altitude diagnostics) i Phase 12 (device orientation/compass).
