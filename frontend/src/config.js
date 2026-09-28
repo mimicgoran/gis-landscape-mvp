@@ -61,7 +61,11 @@ export const FOV_DEFAULT_DEG = 30;
 // testa, usklađeno sa backend radius_min_km. Omogućava analizu i vrlo
 // bliskog sektora (npr. objekti u naselju), ne samo planinarskog opsega.
 export const RADIUS_MIN_KM = 1;
-export const RADIUS_MAX_KM = 30;
+// Gornja granica 8 (ne 30) -- korisnička odluka nakon trećeg telefon testa
+// (analiza je trajala predugo) -- manji max radius direktno smanjuje broj
+// OSM kandidata i area-feature sample tačaka po zahtjevu, usklađeno sa
+// backend radius_max_km.
+export const RADIUS_MAX_KM = 8;
 // Default 5 (ne 20) -- ista odluka, usklađeno sa radius_default_km.
 export const RADIUS_DEFAULT_KM = 5;
 

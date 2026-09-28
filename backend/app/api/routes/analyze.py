@@ -21,6 +21,24 @@ prije bilo kakvog DEM rada -- vrijeme čekanja na mrežu se preklapa umjesto
 sabira. Vidi i `ElevationService` ("OTVORENI DATASET HANDLE KEŠ") za drugu
 polovinu ove optimizacije -- ranije rasipničko ponavljano otvaranje istog
 DEM tile-a za svaki kandidat/sample.
+
+PERFORMANSA #2 (korisnička primjedba "i dalje 30+ sekundi", treći telefon
+test): area feature-i (rijeke/vodene površine/parkovi/nacionalni parkovi)
+su se ranije SVI potpuno obrađivali (do `area_feature_max_samples_per_feature`
+DEM lookupova SVAKI) prije nego što bi se sortiralo po distanci i odsjeklo
+na `area_feature_max_results` -- feature-i van top-N su punom cijenom
+obrađeni pa odbačeni. Sad se prvo radi jeftino rangiranje po distanci
+(`rank_area_candidates_by_distance`, samo geometrija, bez DEM-a), pa se
+SAMO najbliži `area_feature_max_results` kandidata šalju na skupu
+mini-viewshed obradu. Vidi `app.services.area_visibility` modul za
+obrazloženje i mali dogovoreni kompromis (rijedak edge-case: ako neki od
+top-N kandidata nema DEM pokrivenost, ne popunjava se sa sledećim
+najbližim van cut-a -- prihvatljivo za MVP, dokumentovano u
+docs/architecture-feasibility-review.md, sekcija 37).
+
+Drugi dio ove izmjene: `radius_max_km` snižen sa 30 na 8 km (korisnička
+odluka, isti test) -- manji max radius direktno smanjuje broj OSM
+kandidata i area-feature sample tačaka po zahtjevu.
 """
 
 import asyncio
@@ -30,7 +48,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.config import get_settings
 from app.models.feature import AnalyzedAreaFeature, AnalyzedFeature, AreaSamplePoint
 from app.models.observer import ObserverInput
-from app.services.area_visibility import evaluate_area_feature_visibility
+from app.services.area_visibility import evaluate_area_feature_visibility, rank_area_candidates_by_distance
 from app.services.elevation import ElevationService
 from app.services.geometry import build_sector_polygon, select_candidates
 from app.services.location_quality import build_location_quality, compute_observer_elevation_m
@@ -194,9 +212,16 @@ def get_analyze_preview(
 
     sector_polygon = build_sector_polygon(lat, lon, heading_deg, fov_deg, radius_km)
 
+    # Jeftino rangiranje po distanci PRIJE skupe mini-viewshed obrade -- vidi
+    # modul docstring ("PERFORMANSA #2") i `rank_area_candidates_by_distance`
+    # docstring za obrazloženje i dogovoreni kompromis.
+    ranked_area_candidates = rank_area_candidates_by_distance(raw_area_features, sector_polygon, lat, lon)
+    area_candidates_in_sector = len(ranked_area_candidates)
+    capped_area_candidates = ranked_area_candidates[: settings.area_feature_max_results]
+
     area_results: list[tuple[object, object]] = []
     area_skipped_no_elevation = 0
-    for area_feature in raw_area_features:
+    for area_feature in capped_area_candidates:
         area_result = evaluate_area_feature_visibility(
             feature=area_feature,
             sector_polygon=sector_polygon,
@@ -210,17 +235,19 @@ def get_analyze_preview(
             collect_sample_details=include_profile,
         )
         if area_result is None:
-            # Ili van sektora (intersect prazan), ili nijedna sample tačka
-            # nema dostupan DEM -- oba slučaja se tretiraju kao "izostavi iz
-            # rezultata" (vidi evaluate_area_feature_visibility docstring).
-            # Brojimo samo drugi slučaj odvojeno nije moguće bez dodatnog
-            # signala iz funkcije, pa se oba prijavljuju zajedno kao
-            # "nije uključeno" -- dovoljno za MVP debug transparentnost.
+            # `capped_area_candidates` su već svi unutar sektora (to je
+            # provjereno u `rank_area_candidates_by_distance`), pa ovdje
+            # `None` znači isključivo "nijedna sample tačka nema dostupan
+            # DEM" (rijedak edge-case -- vidi evaluate_area_feature_visibility
+            # docstring).
             area_skipped_no_elevation += 1
             continue
         area_results.append((area_feature, area_result))
 
     area_results.sort(key=lambda pair: pair[1].closest_distance_km)
+    # Već <= area_feature_max_results po konstrukciji (capped_area_candidates
+    # gore) -- slice ostaje kao eksplicitna sigurnosna garancija, ne mijenja
+    # ponašanje.
     area_results = area_results[: settings.area_feature_max_results]
 
     area_features: list[AnalyzedAreaFeature] = [
@@ -270,6 +297,8 @@ def get_analyze_preview(
             "visible_count": len(visible_features),
             "blocked_count": len(blocked_features),
             "area_features_total": len(raw_area_features),
+            "area_features_in_sector_total": area_candidates_in_sector,
+            "area_features_analyzed": len(capped_area_candidates),
             "area_features_in_sector": len(area_features),
             "area_features_skipped_or_no_elevation": area_skipped_no_elevation,
         },

@@ -231,6 +231,50 @@ def sample_points_for_geometry(geometry: BaseGeometry, spacing_m: float, max_sam
     return []
 
 
+def rank_area_candidates_by_distance(
+    features: list[OSMAreaFeature],
+    sector_polygon: Polygon,
+    observer_latitude: float,
+    observer_longitude: float,
+) -> list[OSMAreaFeature]:
+    """Jeftina prva faza PRIJE `evaluate_area_feature_visibility()` -- samo
+    sector-intersect + čista geometrijska distanca (BEZ DEM sampling-a),
+    da bi pozivalac (`analyze.py`) mogao ograničiti obradu na najbliže `N`
+    kandidata PRIJE skupog dijela posla. Dodano nakon korisničke primjedbe
+    "analiza traje predugo" (treći telefon test) -- vidi
+    docs/architecture-feasibility-review.md, sekcija 37: ranije su SVI
+    sektor-presijecajući area feature-i prolazili kroz punu mini-viewshed
+    obradu (do `area_feature_max_samples_per_feature` DEM lookupova SVAKI),
+    a tek nakon toga bi se sortiralo po distanci i odsjeklo na
+    `area_feature_max_results` -- feature-i koji su na kraju ispali iz
+    top-N su svejedno bili punom cijenom obrađeni, uzalud.
+
+    Vraća feature-e SORTIRANE po `closest_distance_km` (najbliži prvo),
+    izostavljajući one koji uopšte ne upadaju u sektor (intersect prazan) --
+    identičan filter kao unutar `evaluate_area_feature_visibility()`.
+
+    Namjerna jednostavnost: distanca se ovdje računa istom formulom koju
+    `evaluate_area_feature_visibility()` kasnije PONOVO računa za odabrane
+    kandidate -- to je jeftina, čisto geometrijska duplikacija (ne DEM
+    sampling), pa nije vrijedno refaktora da se dijeli jedan rezultat
+    između dvije funkcije samo da bi se ta sitna redudanca izbjegla."""
+    ranked: list[tuple[OSMAreaFeature, float]] = []
+    observer_point = Point(observer_longitude, observer_latitude)
+
+    for feature in features:
+        intersection = intersect_with_sector(feature.geometry, sector_polygon)
+        if intersection is None:
+            continue
+        _, nearest_on_feature = nearest_points(observer_point, feature.geometry)
+        closest_distance_km = geodesic_distance_km(
+            observer_latitude, observer_longitude, nearest_on_feature.y, nearest_on_feature.x
+        )
+        ranked.append((feature, closest_distance_km))
+
+    ranked.sort(key=lambda item: item[1])
+    return [feature for feature, _distance_km in ranked]
+
+
 def evaluate_area_feature_visibility(
     feature: OSMAreaFeature,
     sector_polygon: Polygon,

@@ -56,6 +56,22 @@ def _patch_full_pipeline(monkeypatch, observer_dem_elevation=1241.0, area_featur
 
     monkeypatch.setattr(analyze_route, "resolve_target_elevation", fake_resolve)
 
+    # `rank_area_candidates_by_distance()` (Phase 9 performance optimizacija,
+    # sekcija 37 u arhitekturnom dokumentu) radi PRAVU geometriju
+    # (`intersect_with_sector` + `nearest_points` nad `feature.geometry`) da
+    # bi jeftino sortirala/ograničila kandidate PRIJE skupog
+    # `evaluate_area_feature_visibility()` poziva. Test fixture-i ovog fajla
+    # namjerno koriste `SimpleNamespace` bez `.geometry` -- oni testiraju
+    # SAMO orkestraciju endpointa (vidi docstring na vrhu fajla), ne pravu
+    # geometriju (to pokriva test_area_visibility.py). Zato ovdje mockujemo
+    # `rank_area_candidates_by_distance` kao passthrough koji vraća listu
+    # nepromijenjenu -- isti princip kao mock za `evaluate_area_feature_visibility`
+    # ispod, samo jedan korak ranije u pipeline-u.
+    def fake_rank(features, sector_polygon, observer_latitude, observer_longitude):
+        return list(features)
+
+    monkeypatch.setattr(analyze_route, "rank_area_candidates_by_distance", fake_rank)
+
     def fake_check_visibility(**kwargs):
         target_lat = kwargs["target_latitude"]
         visible = target_lat == 43.28  # "Visible Peak" vidljiv, "Blocked Peak" blokiran

@@ -59,13 +59,16 @@ class Settings(BaseSettings):
     # Donja granica promijenjena sa 5 na 1 km (korisnička odluka, drugi
     # pravi telefon test) -- korisnik želi moći analizirati i vrlo blizak
     # sektor (npr. objekti u naselju/dvorištu), ne samo planinarski opseg.
-    # Gornja granica (30 km) ostaje ista kao u sekciji 0/8 -- earth
-    # curvature i dalje nije uključena u MVP, obrazloženje se ne mijenja.
+    # Gornja granica promijenjena sa 30 na 8 km (treći telefon test --
+    # korisnička odluka nakon što se pokazalo da analiza traje predugo):
+    # manji max radius znači manje OSM kandidata i manje area-feature
+    # sample tačaka po zahtjevu (vidi docs/architecture-feasibility-review.md,
+    # sekcija 37). Earth curvature obrazloženje iz sekcije 0/9 samo dodatno
+    # jača na 8 km (~14m greška na 20km skalira na ~2m na 8km, po d²
+    # zavisnosti) -- i dalje bezbjedno zanemarivo, ne treba je uključiti.
     radius_min_km: float = 1.0
-    radius_max_km: float = 30.0
-    # Default (5) ostaje nepromijenjen -- i dalje unutar novog 1-30 opsega,
-    # obrazloženje iz prethodne odluke (brži Overpass/DEM/LOS za tipičan
-    # demo slučaj) i dalje važi.
+    radius_max_km: float = 8.0
+    # Default (5) ostaje nepromijenjen -- i dalje unutar novog 1-8 opsega.
     radius_default_km: float = 5.0
 
     # --- Line-of-sight (Phase 8) ---
