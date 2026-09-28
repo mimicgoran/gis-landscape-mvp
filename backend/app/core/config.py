@@ -68,8 +68,11 @@ class Settings(BaseSettings):
     # zavisnosti) -- i dalje bezbjedno zanemarivo, ne treba je uključiti.
     radius_min_km: float = 1.0
     radius_max_km: float = 8.0
-    # Default (5) ostaje nepromijenjen -- i dalje unutar novog 1-8 opsega.
-    radius_default_km: float = 5.0
+    # Default 2 (ne 5) -- korisnička odluka nakon četvrtog telefon testa
+    # (nakon što je max spušten na 8 km, korisnik želi da i početna
+    # vrijednost bude bliža donjoj granici -- brža prva analiza bez
+    # podešavanja slajdera).
+    radius_default_km: float = 2.0
 
     # --- Line-of-sight (Phase 8) ---
     # Sampling korak ~= DEM rezolucija (30 m). Vidi sekciju 9.

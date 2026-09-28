@@ -66,8 +66,9 @@ export const RADIUS_MIN_KM = 1;
 // OSM kandidata i area-feature sample tačaka po zahtjevu, usklađeno sa
 // backend radius_max_km.
 export const RADIUS_MAX_KM = 8;
-// Default 5 (ne 20) -- ista odluka, usklađeno sa radius_default_km.
-export const RADIUS_DEFAULT_KM = 5;
+// Default 2 (ne 5) -- korisnička odluka nakon četvrtog telefon testa,
+// usklađeno sa backend radius_default_km.
+export const RADIUS_DEFAULT_KM = 2;
 
 // Heading nema "prirodan" default (zavisi isključivo od toga gdje korisnik
 // gleda) — 0 (sjever) je proizvoljna ali razumna početna vrijednost dok se
