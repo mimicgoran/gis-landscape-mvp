@@ -97,7 +97,21 @@ Nakon Phase 8, eksplicitno je odbačen "samo vrhovi" scope -- korisnik pita i "k
 - [x] **Pretpostavka o Overpass `out geom;` na relacijama -- empirijski potvrđena:** relacija "Национални парк Копаоник" (`osm_id=9499191`) i još dvije relacije (park, water) su preko `/api/v1/osm/areas` vraćene kao validni, ne-degenerisani poligoni na živim podacima (vidi arhitekturu, sekciju 27).
 - [x] Korisnička `pytest` (148 passed) i ručna Swagger verifikacija (`/osm/areas`, `/osm/points`, `/analyze/preview`) su urađene. Dodatno: pošto je prvi `/analyze/preview` poziv (radius 20 km) vratio 0 vidljivih od 35 feature-a, urađena je ručna provjera terrain profila (`include_profile=true`, radius 5 km) -- ručni `atan2` preračun potvrdio je da je "sve blokirano" tačan rezultat za tu konkretnu posmatračku tačku (bliska uzvišica ~800 m dalje, viša od posmatrača), ne bug. Detalji u arhitekturi, sekcija 27.
 
-Phase 8 + Phase 9 su commit/push-ready. Sljedeća faza: **Phase 10+ -- mobile geolocation, phone altitude diagnostics, device orientation/compass** (frontend integracija stvarnih senzora, nakon što je backend pipeline dokazan preko manual/dev endpointa na širem setu geografskih feature-a).
+Phase 8 + Phase 9 su commit/push-ready (backend je time potpuno završen -- Phase 1-9).
+
+## Trenutni status (Phase 10 -- frontend: rezultati UI + mobile geolocation, spojeno)
+
+Prije ovog koraka je otkriveno da frontend nikad nije implementirao originalni brief Phase 9 ("Visible/blocked UI") -- numeracija faza se poklopila sa backend scope expansion-om koji je dobio isto ime. Korisnik je odlučio da se rezultati UI i mobile geolocation urade zajedno, ne odvojeno (puno obrazloženje u `docs/architecture-feasibility-review.md`, sekcija 28).
+
+- [x] `services/geolocationService.js` -- gesture-triggered (dugme, ne page-load), jednokratno `getCurrentPosition()` (ne `watchPosition`), čitljive poruke za sve greške (permission denied/unavailable/timeout/nedostupan secure context).
+- [x] `services/analyzeService.js` -- poziva postojeći `GET /api/v1/analyze/preview` (dokumentovan kompromis naspram "finalnog" POST oblika -- vidi arhitekturu, sekcija 28).
+- [x] `map/observerInteraction.js` refaktorisan (`placeObserverMarker()` zajednička putanja za klik i geolocation), `map/symbols.js` dopunjen (visible/blocked simboli), novi `map/resultsRenderer.js` (crta tačkaste rezultate na mapi, sa popup-ima).
+- [x] Novi `ui/resultsPanel.js` (lista visible/blocked/area feature-a) i `ui/actionButtons.js` ("Koristi moju lokaciju" / "Šta gledam?" dugmad).
+- [x] `ui/debugPanel.js` prošireno -- kolabsiran location-quality panel (brief sekcija 15/57), pun prikaz GPS accuracy/phone altitude/DEM elevation/confidence/debug brojača nakon analize.
+- [x] `main.js` prepisan -- puna orkestracija observer -> sector -> analyze -> rezultati (mapa + panel + debug).
+- [ ] Sav JS kod je `node --check` sintaksno provjeren, ali **korisnička ručna provjera u browseru (desktop i telefon) još nije urađena** -- commit čeka to. Poznato ograničenje: geolocation zahtijeva HTTPS/localhost, pa testiranje sa telefona preko LAN IP-a neće raditi za geolocation dio prije Phase 15 (HTTPS deployment) ili privremenog HTTPS tunela.
+
+Sljedeća faza nakon verifikacije: **Phase 11+ -- phone altitude diagnostics (dodatna provjera/dorada), device orientation/compass** (brief sekcija 54).
 
 ## Licenca podataka
 

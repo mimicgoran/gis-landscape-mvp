@@ -768,6 +768,37 @@ Phase 8 + Phase 9 su spremni za commit/push (zajedno, vidi sekciju 26).
 
 ---
 
+## 28. Phase 10 (frontend) -- otkriven procjep u numeraciji faza, i rezultati UI + mobile geolocation zajedno (28.09.2026)
+
+Prije implementacije ovog koraka, provjeren je stvaran stanje frontend koda (ne pretpostavljeno) -- otkriveno je da frontend stoji na nivou originalnog brief Phase 3 (mapa + manual observer + heading/FOV/radius kontrole + sektor), bez ijedne linije koda koja poziva `/api/v1/analyze` ili prikazuje rezultate. **Uzrok:** originalni brief (sekcija 54) ima Phase 9 = "Visible/blocked UI" kao zaseban frontend korak, ali kad je korisnik odmah nakon backend Phase 8 zatražio prošireni OSM scope (rijeke/vode/parkovi), taj rad je hronološki dobio ime "Phase 9" u ovom projektu -- originalni frontend Phase 9 je time tiho ostao neurađen, prekriven drugačijim radom pod istim brojem. Ovo je eksplicitno prijavljeno korisniku prije pisanja koda (ne prećutano), koji je odlučio da se preostali frontend rad -- rezultati UI (originalni Phase 9) i mobile geolocation (Phase 10) -- uradi ZAJEDNO, kao jedna faza, umjesto odvojeno, jer geolocation sam za sebe ne daje vidljivu vrijednost bez načina da se rezultat analize prikaže.
+
+### Odluke prije implementacije (potvrđene sa korisnikom)
+
+1. **Geolocation gesture-triggered, ne automatski na page load** -- traži se tek na klik dugmeta "Koristi moju lokaciju" (`services/geolocationService.js`). Pouzdanije na iOS Safari, manje nametljivo.
+2. **Jednokratno očitavanje (`getCurrentPosition`), ne `watchPosition`** -- dovoljno za scenario "stojim na vidikovcu" (brief tačka 1); kontinuirano praćenje eksplicitno odloženo za Future ako se pokaže potreba.
+3. **Location-quality debug panel uključen odmah** (ne odložen u Future, iako je brief tačka 15 to dozvoljavao) -- backend je već vraćao sve potrebne podatke (`location_quality`, `debug` blok) od Phase 7/8, pa je prikaz na frontendu mala nadogradnja, ne novi scope.
+
+### API kompromis (dokumentovan, ne prećutan)
+
+Frontend (`services/analyzeService.js`) poziva postojeći `GET /api/v1/analyze/preview` (query parametri), IAKO je taj endpoint u svom docstringu najavljivao da će "finalni" oblik biti `POST /api/v1/analyze` sa observer objektom u body-ju. Odlučeno je da se ta REST-čistoća odloži -- trenutni GET oblik već potpuno pokriva frontend potrebe, i promjena ugovora bi u ovom trenutku bila čisto kozmetička. Prirodna prilika da se to ipak uradi: Phase 13 (OpenAI sloj), kad endpoint svakako mora da se promijeni da doda `ai_description`.
+
+### Šta je urađeno
+
+- **`services/geolocationService.js`** (nov) -- Promise wrapper oko `navigator.geolocation.getCurrentPosition()`, sa čitljivim porukama za sva tri `GeolocationPositionError` koda (permission denied / position unavailable / timeout) i za nedostupan secure context (HTTP na LAN IP -- poznato ograničenje do Phase 15 HTTPS deploymenta).
+- **`services/analyzeService.js`** (nov) -- poziva `/api/v1/analyze/preview`, tretira `debug.error` (DEM nedostupan) kao grešku na frontend strani, ne kao "prazan rezultat".
+- **`map/observerInteraction.js`** (refaktorisan) -- `placeObserverMarker()` izdvojen kao zajednička putanja za manual klik I geolocation (ista Point/Graphic/symbol logika, bez duplikacije).
+- **`map/symbols.js`** (dopunjen) -- `createVisibleFeatureSymbol()` (zelen, upadljiviji) i `createBlockedFeatureSymbol()` (sivo, prigušeno) -- brief tačka 35: visible mora biti vizuelno važniji.
+- **`map/resultsRenderer.js`** (nov) -- crta visible/blocked TAČKASTE feature-e na `resultsLayer` (koji je postojao od Phase 1 ali bio nekorišten), sa popup-ima. Area feature-i (rijeke/vode/parkovi) se NAMJERNO ne crtaju kao geometrija ovdje -- `AnalyzedAreaFeature` ne nosi koordinate (samo distancu/bearing do najbliže tačke), da se ne bi duplirala puna Overpass geometrija u dva odgovora. Prikazuju se samo tekstualno u `resultsPanel.js`. Crtanje njihove stvarne geometrije na mapi je Future stavka.
+- **`ui/resultsPanel.js`** (nov) -- lista visible/blocked tačaka (visible prvo) i area feature-a, sa bedževima (VIDLJIVO/ZAKLONJENO/DJELIMIČNO). Prost DOM, bez frameworka (brief tačka 35).
+- **`ui/actionButtons.js`** (nov) -- "Koristi moju lokaciju" i "Šta gledam?" dugmad, sa loading stanjima.
+- **`ui/debugPanel.js`** (prošireno) -- kolabsiran po defaultu (brief sekcija 15), expand prikazuje pun `location_quality` + `debug` blok (GPS accuracy, phone altitude/accuracy, DEM elevation, observer elevation, elevation_source, heading/FOV/radius, OSM candidate counts) -- brief sekcija 57 zahtjevi, skoro svi podaci već postojali u backend odgovoru.
+- **`main.js`** (prepisan) -- orkestracija: observer (klik ILI geolocation) -> `renderSector` (postojeće) -> na klik "Šta gledam?" -> `fetchAnalysis` -> `debugPanel.updateAnalysis` + `resultsPanel.render` + `renderResults` (mapa). Stari rezultati se brišu čim se observer pomjeri (novi klik/geolocation), da ne zavaravaju korisnika dok se analiza ponovo ne pokrene.
+- **`index.html` / `styles/main.css`** -- novi `#actionBar` (top-left), `#resultsPanel` (bottom-right, scroll, max-height), mobile-first media query na 480px (action bar/controls dijele širinu, results panel puna širina).
+
+### Status testiranja
+
+Sav novi/izmijenjeni JS kod je provjeren preko `node --check` (sintaksna validacija -- nema browser/DOM okruženje u dev sandbox-u da se izvrši stvarni end-to-end test). **Korisnička ručna provjera u browseru (klik na mapu, geolocation dugme, "Šta gledam?" dugme, provjera rezultata/debug panela na desktopu i telefonu) JOŠ NIJE urađena** -- ovo je "implementirano, čeka verifikaciju", isti princip transparentnosti kao Phase 9 prije svoje verifikacije (sekcija 27). Poznato ograničenje za testiranje sa telefona: geolocation zahtijeva HTTPS ili localhost, pa testiranje preko LAN IP-a (telefon -> desktop dev server) neće raditi za geolocation dio (manual klik i dalje radi) -- rješava se tek u Phase 15 (HTTPS deployment) ili privremenim HTTPS tunelom (npr. ngrok) ako se želi testirati geolocation prije toga.
+
 ## Sljedeći korak
 
-Dokument je odobren (sekcija 0). Implementacija napreduje faza po fazu -- napredak i odluke iz svake faze se dodaju u ovaj dokument. Phase 8 (line-of-sight + automatski Overpass retry) i Phase 9 (area feature-i) su implementirani, testirani (148/148) i ručno verifikovani protiv živih podataka -- spremni za commit/push. Sljedeća faza po originalnom redoslijedu (sekcija 54 brifa): Phase 10+ -- mobile geolocation, phone altitude diagnostics, device orientation/compass.
+Dokument je odobren (sekcija 0). Implementacija napreduje faza po fazu -- napredak i odluke iz svake faze se dodaju u ovaj dokument. Backend (Phase 1-9) je potpuno implementiran, testiran i verifikovan. Frontend Phase 10 (rezultati UI + mobile geolocation, spojeno -- sekcija 28) je implementiran, čeka korisničku ručnu verifikaciju u browseru prije commit-a. Sljedeće nakon toga, po originalnom redoslijedu (brief sekcija 54): Phase 11 (phone altitude diagnostics -- već djelimično pokriveno kroz geolocation flow, provjeriti da li ima još nešto specifično za dodati) i Phase 12 (device orientation/compass).

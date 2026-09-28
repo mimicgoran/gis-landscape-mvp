@@ -12,12 +12,20 @@
   <link rel="stylesheet" href="styles/main.css" />
 </head>
 <body>
-  <!-- Phase 3: mapa + manual observer + heading/FOV/radius kontrole +
-       viewing sector (crta se uživo). Rezultati i puni debug panel dolaze
-       u Phase 9/11 (vidi MVP backlog u architecture review). -->
+  <!-- Mapa + manual observer + heading/FOV/radius kontrole + viewing sector
+       (Phase 1-3), rezultati analize i mobile geolocation (originalni brief
+       Phase 9 "Visible/blocked UI" + Phase 10, vidi src/main.js docstring
+       za napomenu o procjepu u numeraciji faza). -->
   <div id="viewDiv"></div>
 
+  <div id="actionBar" class="action-bar">
+    <button id="locateButton" type="button" class="action-button">Koristi moju lokaciju</button>
+    <button id="analyzeButton" type="button" class="action-button action-button-primary">Šta gledam?</button>
+  </div>
+
   <div id="controlsPanel" class="controls-panel"></div>
+
+  <div id="resultsPanel" class="results-panel" hidden></div>
 
   <div id="debugPanel" class="debug-panel"></div>
 

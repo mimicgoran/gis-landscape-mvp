@@ -81,3 +81,188 @@ body {
 .control-row input[type="range"] {
   width: 100%;
 }
+
+
+/* --- Phase 10: action bar (geolocation + analyze dugmad) --- */
+
+.action-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 200px;
+}
+
+.action-button {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.95);
+  color: #202124;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.action-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.action-button-primary {
+  background: #1a73e8;
+  color: white;
+  border-color: #1a73e8;
+  font-weight: 600;
+}
+
+/* --- Rezultati (originalni brief Phase 9, uradeno zajedno sa Phase 10) --- */
+
+.results-panel {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  width: 260px;
+  max-height: 45vh;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.results-heading {
+  margin: 10px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5f6368;
+}
+
+.results-heading:first-child {
+  margin-top: 0;
+}
+
+.results-status {
+  color: #5f6368;
+  padding: 4px 0;
+}
+
+.results-status-error {
+  color: #b3261e;
+}
+
+.result-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.result-row:last-child {
+  border-bottom: none;
+}
+
+.result-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.result-row-name {
+  font-weight: 600;
+  color: #202124;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-row-meta {
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.result-row-blocked .result-row-name,
+.result-row-blocked .result-row-meta {
+  color: #9aa0a6;
+  font-weight: 400;
+}
+
+.result-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.result-badge-visible {
+  background: #34a853;
+  color: white;
+}
+
+.result-badge-partial {
+  background: #fbbc04;
+  color: #202124;
+}
+
+.result-badge-blocked {
+  background: #e8eaed;
+  color: #5f6368;
+}
+
+/* --- Debug panel: expandable header (Phase 10 dopuna, brief sekcija 15) --- */
+
+.debug-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-panel-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #5f6368;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.debug-panel-details {
+  margin-top: 6px;
+}
+
+.debug-panel-row {
+  font-size: 12px;
+  color: #3c4043;
+  line-height: 1.6;
+}
+
+/* --- Mobile-first: uski ekrani (brief tacka 34: mobile-first) --- */
+
+@media (max-width: 480px) {
+  .action-bar,
+  .controls-panel {
+    width: calc(50% - 24px);
+  }
+
+  .results-panel {
+    width: calc(100% - 32px);
+    right: 16px;
+    left: 16px;
+  }
+}
