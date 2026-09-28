@@ -1,3 +1,16 @@
+/* Bez ovoga, padding elementa se DODAJE na deklarisanu `width` (content-box,
+   browser default) umjesto da se uračuna u nju -- upravo je to uzrokovalo
+   pravi bug prijavljen sa telefona: .controls-panel na uskom ekranu (vidi
+   media query niže) ispadne ŠIRI nego deklarisanih calc(50% - 24px) za
+   tačno iznos svog `padding: 12px 16px`-a, pa vizuelno zagrize u prostor
+   rezervisan za .action-bar. border-box je standardan, univerzalno
+   preporučen reset upravo zbog ovakvih slučajeva. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body {
   height: 100%;
