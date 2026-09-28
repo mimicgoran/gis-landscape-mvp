@@ -140,6 +140,30 @@ body {
   width: 100%;
 }
 
+.control-row input[type="range"]:disabled {
+  opacity: 0.5;
+}
+
+/* --- Phase 12: kompas toggle dugme (unutar heading control-row) --- */
+
+.compass-toggle {
+  margin-top: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.9);
+  color: #202124;
+  cursor: pointer;
+}
+
+.compass-toggle-active {
+  background: #1a73e8;
+  color: white;
+  border-color: #1a73e8;
+}
+
 
 /* --- Phase 10: action bar (geolocation + analyze dugmad) --- */
 

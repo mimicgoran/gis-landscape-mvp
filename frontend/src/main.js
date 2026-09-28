@@ -37,6 +37,11 @@
  * Ako geolocation nije dostupan/bude odbijen, aplikacija trenutno nema
  * fallback -- vidi services/geolocationService.js za detalje i najjednostavniji
  * put nazad ako se ovo pokaže kao problem u praksi.
+ *
+ * PHASE 12 (kompas): dugme "Koristi kompas" je dio `controlsPanel.js`
+ * (ne actionButtons.js) jer mijenja KONTINUIRANU kontrolu (heading slajder),
+ * ne pokreće jednokratnu akciju -- vidi `services/deviceOrientationService.js`
+ * za browser-kompatibilnost/permisije i `ui/controlsPanel.js` za UI logiku.
  */
 
 import { createMapView } from "./map/mapSetup.js";
@@ -100,8 +105,17 @@ async function bootstrap() {
       resultsPanel.hide();
     }
 
-    const controls = initControlsPanel((sector) => {
-      renderSector(sectorLayer, view, currentObserver, sector);
+    const controls = initControlsPanel({
+      onChange: (sector) => {
+        renderSector(sectorLayer, view, currentObserver, sector);
+      },
+      // Phase 12: kompas greške (nepodržan browser, odbijena iOS permisija,
+      // senzor se ne javlja) prikazujemo istim statusBanner-om kao i
+      // geolocation greške (vidi onLocate niže) -- dosljedan obrazac za sve
+      // senzorske greške u aplikaciji.
+      onCompassError: (message) => {
+        showBanner(message);
+      },
     });
 
     const actions = initActionButtons({
