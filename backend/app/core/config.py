@@ -127,7 +127,14 @@ class Settings(BaseSettings):
     # Od Phase 15 (multi-mirror fallback, app.services.overpass_http):
     # ovaj broj pokušaja je PO MIRROR-U, ne ukupno -- ako jedan mirror
     # iscrpi ove pokušaje, prelazi se na sljedeći iz fallback liste.
-    overpass_max_retries: int = 2
+    #
+    # Default spušten na 0 (JEDAN pokušaj po mirror-u, bez retry-ja)
+    # nakon empirijski potvrđenog Render "502 Bad Gateway" -- sa 2
+    # mirror-a i starim default-om od 2 retry-ja, najgori slučaj je
+    # dostizao ~80s, što je Render-ov gateway presijecao prije nego što
+    # bi naš kod stigao da vrati sopstveni (informativniji) 503. Vidi
+    # app.services.overpass_http modul docstring za puno obrazloženje.
+    overpass_max_retries: int = 0
     overpass_retry_backoff_s: float = 2.0
     copernicus_dem_bucket: str = "copernicus-dem-30m"
 

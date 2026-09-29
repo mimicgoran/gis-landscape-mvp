@@ -59,7 +59,19 @@ from app.core.config import Settings
 # prije prelaska na sljedeći poništava svrhu fallback-a. Cilj: brzo
 # saznati da je mirror spor/nedostupan i preći dalje, ne trošiti budžet
 # vremena bitnog za LinkedIn demo (brief tačka 50) na jedan spor server.
-_PER_ATTEMPT_TIMEOUT_S = 12.0
+#
+# VAŽNO (empirijski potvrđeno na produkciji, isti dan): prva verzija ovog
+# fallback-a je koristila 12s timeout SA `settings.overpass_max_retries=2`
+# retry-ja PO mirror-u -- najgori slučaj (2 mirror-a x 3 pokušaja x 12s +
+# pauze) je dostizao i do ~80s. Render-ov gateway je to presjekao sopstvenim
+# "502 Bad Gateway" PRIJE nego što je naš kod uopšte stigao da vrati
+# svoj (informativniji) 503 -- korisnik je dobijao golu Render grešku
+# umjesto naše. Zato je default za `overpass_max_retries` spušten na 0
+# (vidi `Settings.overpass_max_retries`) -- SAMO jedan pokušaj po mirror-u,
+# odmah prelazak na sljedeći kod bilo kakve tranzitorne/konekcijske greške.
+# Sa 2 mirror-a i ovim timeout-om, najgori slučaj je ~16s -- sigurno ispod
+# tipičnog PaaS gateway timeout-a.
+_PER_ATTEMPT_TIMEOUT_S = 8.0
 
 _TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
 

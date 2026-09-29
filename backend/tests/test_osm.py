@@ -252,16 +252,18 @@ def test_fetch_point_features_in_radius_raises_overpass_error_on_bad_status(monk
         asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
 
 
-def test_fetch_point_features_in_radius_retries_transient_error_then_succeeds(monkeypatch) -> None:
-    """504 je tranzitoran (vidi _TRANSIENT_STATUS_CODES) -- servis mora
-    pokušati ponovo umjesto da odmah odustane (empirijski potvrđeno u Phase
-    5/8: ručni retry skoro uvijek uspije)."""
+def test_fetch_point_features_in_radius_falls_back_to_next_mirror_on_transient_error(monkeypatch) -> None:
+    """504 je tranzitoran (vidi app.services.overpass_http) -- servis mora
+    preci na SLJEDECI mirror umjesto da odmah odustane. Od Phase 15 (Render
+    "502 Bad Gateway" nalaz) je `overpass_max_retries` default 0 -- dakle
+    NEMA retry-ja na istom mirror-u, prelazak na drugi mirror je jedini
+    oporavak, i to nakon TACNO jednog neuspjelog poziva."""
     call_count = 0
 
     async def flaky_then_ok_post(self, url, data=None, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count < 3:
+        if call_count < 2:
             return _FakeResponse(504, text="Gateway Timeout")
         return _FakeResponse(200, _OVERPASS_SAMPLE_RESPONSE)
 
@@ -274,7 +276,7 @@ def test_fetch_point_features_in_radius_retries_transient_error_then_succeeds(mo
     service = OverpassService(_fake_settings())
     features = asyncio.run(service.fetch_point_features_in_radius(43.28, 20.81, 20.0))
 
-    assert call_count == 3  # 2 neuspjela + 1 uspješan, u granicama overpass_max_retries=2
+    assert call_count == 2  # prvi mirror otkazao (504), drugi mirror uspio
     assert len(features) == 6
 
 
