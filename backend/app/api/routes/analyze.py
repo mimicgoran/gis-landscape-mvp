@@ -76,10 +76,21 @@ async def _fetch_osm_features(lat: float, lon: float, radius_km: float):
     umjesto sekvencijalno -- vidi modul docstring, "PERFORMANSA". Oba
     servisa imaju sopstvenu retry/cache logiku (`ArcGISPlacesService`/
     `OverpassAreaService`), ovo samo pokreće oba istovremeno umjesto jedan
-    za drugim."""
+    za drugim.
+
+    `return_exceptions=True` -- Phase 15 nalaz (docs/architecture-
+    feasibility-review.md, sekcija 43/44): Overpass (area feature-i) je na
+    produkciji povremeno nedostupan NEZAVISNO od ArcGIS tačkastog izvora.
+    Bez ovoga, `asyncio.gather` bi odmah propagirao BILO KOJI od dva
+    izuzetka i srušio CIJEL odgovor (uklj. tačkaste feature-e koji su
+    uspješno dohvaćeni) -- graceful degradation ispod (vidi poziv ove
+    funkcije) razdvaja slučajeve: neuspjeh tačkastih feature-a i dalje
+    ruši zahtjev (503, to je jezgro "šta gledam" funkcije), a neuspjeh
+    area feature-a se toleriše (prazna lista + debug/diagnostic polje)."""
     return await asyncio.gather(
         _point_features_service.fetch_point_features_in_radius(lat, lon, radius_km),
         _overpass_area_service.fetch_area_features_in_radius(lat, lon, radius_km),
+        return_exceptions=True,
     )
 
 
@@ -146,10 +157,32 @@ def get_analyze_preview(
             },
         }
 
-    try:
-        peaks, raw_area_features = asyncio.run(_fetch_osm_features(lat, lon, radius_km))
-    except (ArcGISPlacesError, OverpassAreaError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    peaks_result, area_result = asyncio.run(_fetch_osm_features(lat, lon, radius_km))
+
+    # Tačkasti feature-i (ArcGIS) su jezgro "šta gledam" funkcije -- ako oni
+    # ne uspiju, nema smisla vraćati djelimičan odgovor (nema šta ni da se
+    # prikaže). Neočekivan (ne-ArcGISPlacesError) izuzetak se NE guta --
+    # ponovo se diže da ne sakrijemo pravi bug iza generičkog 503.
+    if isinstance(peaks_result, ArcGISPlacesError):
+        raise HTTPException(status_code=503, detail=str(peaks_result)) from peaks_result
+    if isinstance(peaks_result, BaseException):
+        raise peaks_result
+    peaks = peaks_result
+
+    # Area feature-i (Overpass) NISU jezgro funkcije -- brief tačka 42 traži
+    # graceful reagovanje na spoljne otkaze, a korisnik je eksplicitno
+    # odbio "čekaj Overpass" kao strategiju (sekcija 43). Zato se neuspjeh
+    # ovdje TOLERIŠE: nastavljamo sa praznom listom area feature-a i
+    # bilježimo grešku u `debug` bloku, umjesto da srušimo cijeli odgovor
+    # (uklj. već uspješno dohvaćene vrhove/naselja preko ArcGIS-a).
+    area_features_error: str | None = None
+    if isinstance(area_result, OverpassAreaError):
+        raw_area_features = []
+        area_features_error = str(area_result)
+    elif isinstance(area_result, BaseException):
+        raise area_result
+    else:
+        raw_area_features = area_result
 
     all_candidates = select_candidates(
         observer_latitude=lat,
@@ -309,5 +342,6 @@ def get_analyze_preview(
             "area_features_analyzed": len(capped_area_candidates),
             "area_features_in_sector": len(area_features),
             "area_features_skipped_or_no_elevation": area_skipped_no_elevation,
+            "area_features_error": area_features_error,
         },
     }

@@ -146,12 +146,24 @@ def test_analyze_preview_propagates_arcgis_places_error_as_503(monkeypatch):
     """Od Phase 15 tačkasti feature-i dolaze sa ArcGISPlacesService (vidi
     app.services.arcgis_places), NE više sa OverpassService -- area
     feature-i (Phase 9) ostaju na Overpass-u preko OverpassAreaService,
-    nepromijenjeno."""
+    nepromijenjeno.
+
+    Area servis se OVDJE eksplicitno mockuje (brz uspjeh) iako test ne
+    provjerava area rezultat -- `_fetch_osm_features` sad koristi
+    `asyncio.gather(..., return_exceptions=True)` (graceful degradation,
+    vidi taj docstring), pa gather ČEKA OBA poziva da završe prije nego
+    što se ijedan izuzetak obradi. Bez ovog mock-a, test bi napravio
+    STVARAN mrežni poziv ka Overpass-u (spor i nepouzdan u CI okruženju,
+    umjesto da testira samo orkestraciju -- vidi napomenu na vrhu fajla)."""
 
     async def fake_fetch_error(latitude, longitude, radius_km):
         raise ArcGISPlacesError("ArcGIS geocoding nedostupan: simulacija za test")
 
+    async def fake_fetch_areas_ok(latitude, longitude, radius_km):
+        return []
+
     monkeypatch.setattr(analyze_route._point_features_service, "fetch_point_features_in_radius", fake_fetch_error)
+    monkeypatch.setattr(analyze_route._overpass_area_service, "fetch_area_features_in_radius", fake_fetch_areas_ok)
     monkeypatch.setattr(analyze_route._elevation_service, "get_elevation", lambda lat, lon: 1241.0)
 
     response = client.get(
@@ -226,7 +238,14 @@ def test_analyze_preview_excludes_area_features_outside_sector(monkeypatch):
     assert body["debug"]["area_features_skipped_or_no_elevation"] == 2
 
 
-def test_analyze_preview_propagates_overpass_area_error_as_503(monkeypatch):
+def test_analyze_preview_degrades_gracefully_on_overpass_area_error(monkeypatch):
+    """Od Phase 15/graceful-degradation izmjene (docs/architecture-
+    feasibility-review.md, sekcija 43/44): neuspjeh area-feature izvora
+    (Overpass) vise NE rusi ceo odgovor -- tackasti "sta gledam" rezultat
+    (ArcGIS) i dalje treba da se vrati, area_features ostaje prazna lista
+    i debug.area_features_error nosi poruku za dijagnostiku. Neuspjeh
+    TACKASTOG izvora (ArcGIS) i dalje rusi zahtjev sa 503 -- vidi
+    test_analyze_preview_propagates_arcgis_places_error_as_503."""
     _patch_full_pipeline(monkeypatch)
 
     async def fake_fetch_areas_error(latitude, longitude, radius_km):
@@ -239,4 +258,9 @@ def test_analyze_preview_propagates_overpass_area_error_as_503(monkeypatch):
         params={"lat": 43.27, "lon": 20.80, "heading_deg": 45.0, "fov_deg": 90.0, "radius_km": 20.0},
     )
 
-    assert response.status_code == 503
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["visible_features"]) == 1
+    assert len(body["blocked_features"]) == 1
+    assert body["area_features"] == []
+    assert body["debug"]["area_features_error"] == "Overpass API vratio 504"
