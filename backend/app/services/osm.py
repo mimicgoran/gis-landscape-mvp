@@ -22,14 +22,12 @@ dovoljno za MVP saobraćaj, bez eksterne cache infrastrukture.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Literal
 
-import httpx
-
 from app.core.config import Settings
 from app.models.feature import OSMPointFeature
+from app.services.overpass_http import OverpassHTTPError, fetch_overpass_json
 
 # Zaokruživanje na 3 decimale (~111 m na ekvatoru) je dovoljno grubo da keš
 # pogodi ponovljene zahtjeve sa iste test lokacije (razvoj/demo), a dovoljno
@@ -49,10 +47,9 @@ _USER_AGENT = (
 )
 
 # Statusni kodovi koji signaliziraju TRANZITORAN problem (server preopterećen,
-# rate limit, gateway timeout) -- vrijedi ih retry-ovati. Sve ostalo (npr.
-# 400 loš upit, 406 bez User-Agent -- taj slučaj je već riješen iznad) je
-# trajna greška koju retry ne bi popravio, pa se odmah odustaje.
-_TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+# rate limit, gateway timeout), i sama retry/mirror-fallback logika, sada
+# žive u `app.services.overpass_http` (Phase 15 -- multi-mirror fallback,
+# vidi taj modul za puno obrazloženje).
 
 _SETTLEMENT_PLACE_VALUES = {"city", "town", "village"}
 
@@ -141,12 +138,9 @@ class OverpassService:
     async def fetch_point_features_in_radius(
         self, latitude: float, longitude: float, radius_km: float
     ) -> list[OSMPointFeature]:
-        """Vidi modul docstring (User-Agent fix) i `_TRANSIENT_STATUS_CODES`
-        za obrazloženje retry logike -- do `Settings.overpass_max_retries`
-        dodatnih pokušaja SAMO za tranzitorne greške (mrežni problem, 429/
-        502/503/504), sa `Settings.overpass_retry_backoff_s` pauzom između
-        pokušaja. Trajne greške (npr. 400) se odmah prijavljuju bez
-        čekanja -- retry im ne bi pomogao.
+        """HTTP/retry/mirror-fallback logika sada živi u
+        `app.services.overpass_http.fetch_overpass_json` -- vidi taj modul
+        za obrazloženje (multi-mirror fallback, Phase 15).
 
         Preimenovano iz `fetch_peaks_in_radius` u Phase 9 (vidi
         `app.models.feature.OSMPointFeature`)."""
@@ -156,51 +150,28 @@ class OverpassService:
             return cached.peaks
 
         query = _build_overpass_query(latitude, longitude, radius_km)
-        max_attempts = self._settings.overpass_max_retries + 1
-        last_error: OverpassError | None = None
+        try:
+            payload = await fetch_overpass_json(self._settings, query, _USER_AGENT)
+        except OverpassHTTPError as exc:
+            raise OverpassError(str(exc)) from exc
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                async with httpx.AsyncClient(timeout=25.0) as client:
-                    response = await client.post(
-                        self._settings.overpass_api_url,
-                        data={"data": query},
-                        headers={"User-Agent": _USER_AGENT},
-                    )
-            except httpx.HTTPError as exc:
-                last_error = OverpassError(f"Overpass API nedostupan: {exc}")
-            else:
-                if response.status_code == 200:
-                    payload = response.json()
-                    peaks: list[OSMPointFeature] = []
-                    for element in payload.get("elements", []):
-                        if element.get("type") != "node":
-                            continue
-                        tags = element.get("tags", {})
-                        category = _infer_category(tags)
-                        if category is None:
-                            continue
-                        peaks.append(
-                            OSMPointFeature(
-                                osm_id=element["id"],
-                                name=tags.get("name"),
-                                latitude=element["lat"],
-                                longitude=element["lon"],
-                                ele_m=_parse_ele_tag(tags.get("ele")),
-                                category=category,
-                            )
-                        )
-                    self._cache[key] = _CacheEntry(peaks=peaks, expires_at_epoch_s=time.monotonic() + _CACHE_TTL_S)
-                    return peaks
-
-                if response.status_code not in _TRANSIENT_STATUS_CODES:
-                    # Trajna greška -- retry ne bi pomogao, odustajemo odmah.
-                    raise OverpassError(f"Overpass API vratio {response.status_code}: {response.text[:300]}")
-
-                last_error = OverpassError(f"Overpass API vratio {response.status_code}: {response.text[:300]}")
-
-            if attempt < max_attempts:
-                await asyncio.sleep(self._settings.overpass_retry_backoff_s)
-
-        assert last_error is not None  # max_attempts >= 1, pa je last_error uvijek postavljen prije ovog reda
-        raise last_error
+        peaks: list[OSMPointFeature] = []
+        for element in payload.get("elements", []):
+            if element.get("type") != "node":
+                continue
+            tags = element.get("tags", {})
+            category = _infer_category(tags)
+            if category is None:
+                continue
+            peaks.append(
+                OSMPointFeature(
+                    osm_id=element["id"],
+                    name=tags.get("name"),
+                    latitude=element["lat"],
+                    longitude=element["lon"],
+                    ele_m=_parse_ele_tag(tags.get("ele")),
+                    category=category,
+                )
+            )
+        self._cache[key] = _CacheEntry(peaks=peaks, expires_at_epoch_s=time.monotonic() + _CACHE_TTL_S)
+        return peaks

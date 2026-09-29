@@ -42,15 +42,14 @@ geom;`), što je manja izmjena samo u `_build_area_query`.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Literal
 
-import httpx
 from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
 from shapely.ops import polygonize, unary_union
 
 from app.core.config import Settings
+from app.services.overpass_http import OverpassHTTPError, fetch_overpass_json
 
 _CACHE_COORD_PRECISION = 3
 _CACHE_TTL_S = 24 * 60 * 60
@@ -60,7 +59,9 @@ _USER_AGENT = (
     "(https://github.com/mimicgoran/gis-landscape-mvp; portfolio/demo projekat)"
 )
 
-_TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+# Retry/mirror-fallback logika (uklj. tranzitorne statusne kodove) sada
+# živi u `app.services.overpass_http` (Phase 15 -- multi-mirror fallback,
+# vidi taj modul za puno obrazloženje).
 
 AreaCategory = Literal["river", "water", "park", "national_park"]
 
@@ -234,50 +235,26 @@ class OverpassAreaService:
     async def fetch_area_features_in_radius(
         self, latitude: float, longitude: float, radius_km: float
     ) -> list[OSMAreaFeature]:
-        """Vidi `app.services.osm.OverpassService.fetch_point_features_in_radius`
-        za retry logiku -- identičan pristup i isti razlozi (tranzitorni
-        Overpass problemi), namjerno duplirano ovdje umjesto dijeljenog
-        helper-a jer se parsing odgovora suštinski razlikuje (way/relation
-        geometrija naspram prostih node-ova), pa bi dijeljenje samo HTTP
-        dijela unijelo više indirection-a nego što vrijedi za MVP obim koda."""
+        """HTTP/retry/mirror-fallback logika sada živi u
+        `app.services.overpass_http.fetch_overpass_json` -- dijeljeno sa
+        `app.services.osm.OverpassService` (Phase 15 -- multi-mirror
+        fallback, vidi taj modul za puno obrazloženje). Parsing odgovora
+        ostaje ovdje odvojen jer se suštinski razlikuje od tačkastih
+        feature-a (way/relation geometrija naspram prostih node-ova)."""
         key = _cache_key(latitude, longitude, radius_km)
         cached = self._cache.get(key)
         if cached and cached.is_valid():
             return cached.features
 
         query = _build_area_query(latitude, longitude, radius_km)
-        max_attempts = self._settings.overpass_max_retries + 1
-        last_error: OverpassAreaError | None = None
+        try:
+            payload = await fetch_overpass_json(self._settings, query, _USER_AGENT)
+        except OverpassHTTPError as exc:
+            raise OverpassAreaError(str(exc)) from exc
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                async with httpx.AsyncClient(timeout=25.0) as client:
-                    response = await client.post(
-                        self._settings.overpass_api_url,
-                        data={"data": query},
-                        headers={"User-Agent": _USER_AGENT},
-                    )
-            except httpx.HTTPError as exc:
-                last_error = OverpassAreaError(f"Overpass API nedostupan: {exc}")
-            else:
-                if response.status_code == 200:
-                    payload = response.json()
-                    features = self._parse_elements(payload.get("elements", []))
-                    self._cache[key] = _CacheEntry(
-                        features=features, expires_at_epoch_s=time.monotonic() + _CACHE_TTL_S
-                    )
-                    return features
-
-                if response.status_code not in _TRANSIENT_STATUS_CODES:
-                    raise OverpassAreaError(f"Overpass API vratio {response.status_code}: {response.text[:300]}")
-
-                last_error = OverpassAreaError(f"Overpass API vratio {response.status_code}: {response.text[:300]}")
-
-            if attempt < max_attempts:
-                await asyncio.sleep(self._settings.overpass_retry_backoff_s)
-
-        assert last_error is not None
-        raise last_error
+        features = self._parse_elements(payload.get("elements", []))
+        self._cache[key] = _CacheEntry(features=features, expires_at_epoch_s=time.monotonic() + _CACHE_TTL_S)
+        return features
 
     @staticmethod
     def _parse_elements(elements: list[dict]) -> list[OSMAreaFeature]:

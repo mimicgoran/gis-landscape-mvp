@@ -108,6 +108,13 @@ class Settings(BaseSettings):
     candidate_ranking_max_n: int = 20
 
     # --- Eksterni servisi ---
+    # Prvi/preferirani Overpass mirror -- podesiv env varijablom
+    # (npr. na Renderu, vidi render.yaml) bez izmjene koda. Podrazumevano
+    # ostaje overpass-api.de jer radi normalno za LOKALNI razvoj (kućna/
+    # mobilna mreža); app.services.overpass_http dodaje dodatne mirror-e
+    # kao fallback za produkciju (Phase 15 nalaz: overpass-api.de blokira
+    # IP opsege deljenih cloud provajdera poput Rendera -- vidi taj modul
+    # i docs/architecture-feasibility-review.md za puno obrazloženje).
     overpass_api_url: str = "https://overpass-api.de/api/interpreter"
     # Javne Overpass instance povremeno vrate 429/502/503/504 pod
     # opterećenjem (potvrđeno empirijski u Phase 5 i Phase 8 -- vidi
@@ -116,6 +123,10 @@ class Settings(BaseSettings):
     # uvijek uspijevao iz drugog pokušaja, pa je automatski retry
     # opravdana, jeftina zaštita -- bitno za LinkedIn demo (brief, tačka
     # 50) da tranzitorni Overpass hiccup ne pokvari snimanje uživo.
+    #
+    # Od Phase 15 (multi-mirror fallback, app.services.overpass_http):
+    # ovaj broj pokušaja je PO MIRROR-U, ne ukupno -- ako jedan mirror
+    # iscrpi ove pokušaje, prelazi se na sljedeći iz fallback liste.
     overpass_max_retries: int = 2
     overpass_retry_backoff_s: float = 2.0
     copernicus_dem_bucket: str = "copernicus-dem-30m"
