@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import osm as osm_route
 from app.main import app
+from app.services.arcgis_places import ArcGISPlacesError, ArcGISPlacesService
 from app.services.osm import OverpassError, OverpassService, _build_overpass_query, _cache_key, _parse_ele_tag
 
 client = TestClient(app)
@@ -313,6 +314,11 @@ def _fake_settings():
 
 
 def test_osm_points_endpoint_returns_parsed_features(monkeypatch) -> None:
+    """Od Phase 15 tačkasti feature-i dolaze sa ArcGISPlacesService (vidi
+    app.services.arcgis_places), NE više sa OverpassService -- vidi taj
+    modul docstring za obrazloženje. Endpoint-level testovi ovdje zato
+    monkeypatch-uju ArcGISPlacesService."""
+
     async def fake_fetch(self, latitude, longitude, radius_km):
         return [
             osm_route.OSMPointFeature(
@@ -320,7 +326,7 @@ def test_osm_points_endpoint_returns_parsed_features(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
+    monkeypatch.setattr(ArcGISPlacesService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get("/api/v1/osm/points", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
 
@@ -337,11 +343,11 @@ def test_osm_points_endpoint_rejects_invalid_radius() -> None:
     assert response.status_code == 422
 
 
-def test_osm_points_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
+def test_osm_points_endpoint_returns_503_on_arcgis_places_error(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
-        raise OverpassError("Overpass API nedostupan: simulacija za test")
+        raise ArcGISPlacesError("ArcGIS geocoding nedostupan: simulacija za test")
 
-    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
+    monkeypatch.setattr(ArcGISPlacesService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get("/api/v1/osm/points", params={"lat": 43.28, "lon": 20.81, "radius_km": 20.0})
     assert response.status_code == 503
@@ -369,7 +375,7 @@ def test_osm_point_candidates_endpoint_filters_and_reports_debug_counts(monkeypa
             ),
         ]
 
-    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
+    monkeypatch.setattr(ArcGISPlacesService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get(
         "/api/v1/osm/point-candidates",
@@ -381,17 +387,17 @@ def test_osm_point_candidates_endpoint_filters_and_reports_debug_counts(monkeypa
     assert len(body["candidates"]) == 1
     assert body["candidates"][0]["osm_id"] == 1
     assert body["debug"] == {
-        "osm_candidates_total": 2,
+        "point_candidates_total": 2,
         "candidates_after_fov_radius_filter": 1,
         "candidates_returned": 1,
     }
 
 
-def test_osm_point_candidates_endpoint_returns_503_on_overpass_error(monkeypatch) -> None:
+def test_osm_point_candidates_endpoint_returns_503_on_arcgis_places_error(monkeypatch) -> None:
     async def fake_fetch(self, latitude, longitude, radius_km):
-        raise OverpassError("Overpass API nedostupan: simulacija za test")
+        raise ArcGISPlacesError("ArcGIS geocoding nedostupan: simulacija za test")
 
-    monkeypatch.setattr(OverpassService, "fetch_point_features_in_radius", fake_fetch)
+    monkeypatch.setattr(ArcGISPlacesService, "fetch_point_features_in_radius", fake_fetch)
 
     response = client.get(
         "/api/v1/osm/point-candidates",

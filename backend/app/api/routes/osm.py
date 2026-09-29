@@ -18,17 +18,22 @@ from shapely.geometry import mapping
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.api.routes.arcgis_token import get_arcgis_auth_service
 from app.core.config import get_settings
 from app.models.feature import OSMPointFeature, PointCandidate
+from app.services.arcgis_places import ArcGISPlacesError, ArcGISPlacesService
 from app.services.geometry import select_candidates
-from app.services.osm import OverpassError, OverpassService
 from app.services.osm_areas import OverpassAreaError, OverpassAreaService
 
 router = APIRouter(tags=["osm-dev"])
 
 # Isti obrazac kao arcgis_token.py -- jedan servis-instance po procesu, keš
-# živi u njemu.
-_overpass_service = OverpassService(get_settings())
+# živi u njemu. Tačkasti feature-i (peak/settlement/viewpoint) dolaze sa
+# ArcGIS World Geocoding Service (Phase 15 zamjena za Overpass -- vidi
+# app.services.arcgis_places modul docstring za puno obrazloženje); area
+# feature-i (rijeke/parkovi/vodene površine/nacionalni parkovi) OSTAJU na
+# Overpass-u jer ArcGIS geocoding ne vraća geometriju.
+_point_features_service = ArcGISPlacesService(get_settings(), get_arcgis_auth_service())
 _overpass_area_service = OverpassAreaService(get_settings())
 
 
@@ -42,8 +47,8 @@ async def get_osm_points(
     settlement/viewpoint) u radijusu, BEZ ikakvog geometrijskog filtriranja
     (distance/bearing/FOV -- Phase 5). Preimenovano iz `/osm/peaks`."""
     try:
-        return await _overpass_service.fetch_point_features_in_radius(lat, lon, radius_km)
-    except OverpassError as exc:
+        return await _point_features_service.fetch_point_features_in_radius(lat, lon, radius_km)
+    except ArcGISPlacesError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -61,8 +66,8 @@ async def get_osm_point_candidates(
     docs/architecture-feasibility-review.md, sekcija 11. Preimenovano iz
     `/osm/candidates`."""
     try:
-        peaks = await _overpass_service.fetch_point_features_in_radius(lat, lon, radius_km)
-    except OverpassError as exc:
+        peaks = await _point_features_service.fetch_point_features_in_radius(lat, lon, radius_km)
+    except ArcGISPlacesError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     all_candidates: list[PointCandidate] = select_candidates(
@@ -80,7 +85,7 @@ async def get_osm_point_candidates(
     return {
         "candidates": returned_candidates,
         "debug": {
-            "osm_candidates_total": len(peaks),
+            "point_candidates_total": len(peaks),
             "candidates_after_fov_radius_filter": len(all_candidates),
             "candidates_returned": len(returned_candidates),
         },

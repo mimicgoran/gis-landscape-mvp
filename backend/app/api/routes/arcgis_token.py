@@ -11,8 +11,17 @@ from app.services.arcgis_auth import ArcGISAuthError, ArcGISAuthService
 
 router = APIRouter(tags=["arcgis-auth"])
 
-# Jedan servis-instance po procesu — cache token-a živi ovdje.
+# Jedan servis-instance po procesu — cache token-a živi ovdje. Dijeli se
+# sa `app.services.arcgis_places.ArcGISPlacesService` (vidi
+# `get_arcgis_auth_service` ispod) -- isti token, jedan cache, umjesto da
+# svaki potrošač radi sopstvenu OAuth razmjenu.
 _arcgis_auth_service = ArcGISAuthService(get_settings())
+
+
+def get_arcgis_auth_service() -> ArcGISAuthService:
+    """Javni accessor za dijeljenu `ArcGISAuthService` instancu -- vidi
+    komentar iznad `_arcgis_auth_service`."""
+    return _arcgis_auth_service
 
 
 @router.get("/arcgis-token")

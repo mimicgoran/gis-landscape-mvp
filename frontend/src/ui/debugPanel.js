@@ -7,9 +7,9 @@
  * uraden zajedno sa Phase 10 (vidi glavnu arhitekturu, napomena o procjepu
  * u numeraciji faza).
  *
- * Kolabsiran po defaultu (brief sekcija 15: "Ne želim zatrpati glavni UI
+ * Kolabsiran po defaultu (brief sekcija 15: "Ne želim zatrpati glavni UI
  * tehničkim informacijama... mali expandable/debug/info panel") -- prikazuje
- * samo jednu liniju sažetka dok se ne raželi (klik na strelicu).
+ * samo jednu liniju sažetka dok se ne raželi (klik na strelicu).
  */
 
 const PLACEHOLDER_TEXT = "Klikni na mapu ili koristi dugme 'Koristi moju lokaciju' da postaviš observer.";
@@ -116,7 +116,7 @@ export function initDebugPanel() {
         ["Heading", `${observer.heading_deg}°`],
         ["FOV", `${observer.fov_deg}°`],
         ["Radius", `${observer.radius_km} km`],
-        ["OSM kandidata (ukupno)", debug?.osm_candidates_total ?? "N/A"],
+        ["Kandidata (ukupno)", debug?.point_candidates_total ?? "N/A"],
         ["Nakon FOV/radius filtera", debug?.candidates_after_fov_radius_filter ?? "N/A"],
         ["Analizirano", debug?.candidates_analyzed ?? "N/A"],
         ["Vidljivo", debug?.visible_count ?? "N/A"],

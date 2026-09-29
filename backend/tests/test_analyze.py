@@ -23,7 +23,7 @@ from app.api.routes import analyze as analyze_route
 from app.main import app
 from app.models.feature import OSMPointFeature
 from app.services.area_visibility import AreaVisibilityResult
-from app.services.osm import OverpassError
+from app.services.arcgis_places import ArcGISPlacesError
 from app.services.osm_areas import OverpassAreaError
 from app.services.visibility import VisibilityResult
 
@@ -47,7 +47,7 @@ def _patch_full_pipeline(monkeypatch, observer_dem_elevation=1241.0, area_featur
     async def fake_fetch_areas(latitude, longitude, radius_km):
         return area_features if area_features is not None else []
 
-    monkeypatch.setattr(analyze_route._overpass_service, "fetch_point_features_in_radius", fake_fetch)
+    monkeypatch.setattr(analyze_route._point_features_service, "fetch_point_features_in_radius", fake_fetch)
     monkeypatch.setattr(analyze_route._overpass_area_service, "fetch_area_features_in_radius", fake_fetch_areas)
     monkeypatch.setattr(analyze_route._elevation_service, "get_elevation", lambda lat, lon: observer_dem_elevation)
 
@@ -142,11 +142,16 @@ def test_analyze_preview_handles_missing_observer_dem(monkeypatch):
     assert "error" in body["debug"]
 
 
-def test_analyze_preview_propagates_overpass_error_as_503(monkeypatch):
-    async def fake_fetch_error(latitude, longitude, radius_km):
-        raise OverpassError("Overpass API vratio 504")
+def test_analyze_preview_propagates_arcgis_places_error_as_503(monkeypatch):
+    """Od Phase 15 tačkasti feature-i dolaze sa ArcGISPlacesService (vidi
+    app.services.arcgis_places), NE više sa OverpassService -- area
+    feature-i (Phase 9) ostaju na Overpass-u preko OverpassAreaService,
+    nepromijenjeno."""
 
-    monkeypatch.setattr(analyze_route._overpass_service, "fetch_point_features_in_radius", fake_fetch_error)
+    async def fake_fetch_error(latitude, longitude, radius_km):
+        raise ArcGISPlacesError("ArcGIS geocoding nedostupan: simulacija za test")
+
+    monkeypatch.setattr(analyze_route._point_features_service, "fetch_point_features_in_radius", fake_fetch_error)
     monkeypatch.setattr(analyze_route._elevation_service, "get_elevation", lambda lat, lon: 1241.0)
 
     response = client.get(

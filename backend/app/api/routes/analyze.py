@@ -39,26 +39,34 @@ docs/architecture-feasibility-review.md, sekcija 37).
 Drugi dio ove izmjene: `radius_max_km` snižen sa 30 na 8 km (korisnička
 odluka, isti test) -- manji max radius direktno smanjuje broj OSM
 kandidata i area-feature sample tačaka po zahtjevu.
+
+IZVOR TAČKASTIH FEATURE-A (Phase 15, nakon produkcionih Overpass problema):
+`peaks` (peak/settlement/viewpoint) sada dolazi sa ArcGIS World Geocoding
+Service (`app.services.arcgis_places.ArcGISPlacesService`), NE više sa
+Overpass-a -- vidi taj modul za puno obrazloženje. `raw_area_features`
+(rijeke/parkovi/vodene površine/nacionalni parkovi) OSTAJE na Overpass-u
+(`app.services.osm_areas`) jer ArcGIS geocoding ne vraća geometriju.
 """
 
 import asyncio
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.api.routes.arcgis_token import get_arcgis_auth_service
 from app.core.config import get_settings
 from app.models.feature import AnalyzedAreaFeature, AnalyzedFeature, AreaSamplePoint
 from app.models.observer import ObserverInput
 from app.services.area_visibility import evaluate_area_feature_visibility, rank_area_candidates_by_distance
+from app.services.arcgis_places import ArcGISPlacesError, ArcGISPlacesService
 from app.services.elevation import ElevationService
 from app.services.geometry import build_sector_polygon, select_candidates
 from app.services.location_quality import build_location_quality, compute_observer_elevation_m
-from app.services.osm import OverpassError, OverpassService
 from app.services.osm_areas import OverpassAreaError, OverpassAreaService, merge_overlapping_river_water_features
 from app.services.visibility import check_visibility, resolve_target_elevation
 
 router = APIRouter(tags=["analyze-dev"])
 
-_overpass_service = OverpassService(get_settings())
+_point_features_service = ArcGISPlacesService(get_settings(), get_arcgis_auth_service())
 _overpass_area_service = OverpassAreaService(get_settings())
 _elevation_service = ElevationService(get_settings())
 
@@ -66,11 +74,11 @@ _elevation_service = ElevationService(get_settings())
 async def _fetch_osm_features(lat: float, lon: float, radius_km: float):
     """Pokreće tačkasti i area Overpass upit KONKURENTNO (`asyncio.gather`)
     umjesto sekvencijalno -- vidi modul docstring, "PERFORMANSA". Oba
-    servisa imaju sopstvenu retry/cache logiku (`OverpassService`/
+    servisa imaju sopstvenu retry/cache logiku (`ArcGISPlacesService`/
     `OverpassAreaService`), ovo samo pokreće oba istovremeno umjesto jedan
     za drugim."""
     return await asyncio.gather(
-        _overpass_service.fetch_point_features_in_radius(lat, lon, radius_km),
+        _point_features_service.fetch_point_features_in_radius(lat, lon, radius_km),
         _overpass_area_service.fetch_area_features_in_radius(lat, lon, radius_km),
     )
 
@@ -92,8 +100,8 @@ def get_analyze_preview(
     """Phase 8/9 dev endpoint -- vidi modul docstring. Sync `def` (ne
     `async def`) iz istog razloga kao ostali DEM/location-quality dev
     endpointi -- `rasterio`/`httpx.Client` pozivi unutra su blokirajući, a
-    FastAPI sync rute izvršava u threadpool-u. Overpass pozivi su async
-    (postojeći `OverpassService`/`OverpassAreaService`), pa se pokreću
+    FastAPI sync rute izvršava u threadpool-u. I ArcGIS i Overpass pozivi
+    su async (`ArcGISPlacesService`/`OverpassAreaService`), pa se pokreću
     preko `asyncio.run()` unutar tog thread-a -- jednostavnije nego
     uvoditi `run_in_threadpool`, i sigurno je jer thread nema sopstvenu
     event loop."""
@@ -140,7 +148,7 @@ def get_analyze_preview(
 
     try:
         peaks, raw_area_features = asyncio.run(_fetch_osm_features(lat, lon, radius_km))
-    except (OverpassError, OverpassAreaError) as exc:
+    except (ArcGISPlacesError, OverpassAreaError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     all_candidates = select_candidates(
@@ -290,7 +298,7 @@ def get_analyze_preview(
         "blocked_features": blocked_features,
         "area_features": area_features,
         "debug": {
-            "osm_candidates_total": len(peaks),
+            "point_candidates_total": len(peaks),
             "candidates_after_fov_radius_filter": len(all_candidates),
             "candidates_analyzed": len(candidates),
             "candidates_skipped_no_elevation": skipped_no_elevation,
