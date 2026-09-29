@@ -50,6 +50,25 @@ function resolveBackendBaseUrl() {
 
 export const BACKEND_BASE_URL = resolveBackendBaseUrl();
 
+/**
+ * `?allowMapClick=1` query parametar -- PRIVREMENA izmjena, ISKLJUČIVO za
+ * snimanje demo videa sa računara (korisnički zahtjev, vidi docs/
+ * architecture-feasibility-review.md sekcija 45). Observer se INAČE
+ * postavlja ISKLJUČIVO preko dugmeta "Koristi moju lokaciju" (korisnička
+ * odluka, sekcija 38) -- ova zastavica NAMJERNO ne mijenja taj default za
+ * prave korisnike. Kad je prisutna u URL-u, ponovo omogućava klik-na-mapu
+ * postavljanje observera (`setupObserverInteraction`, isti kod kao
+ * originalni Phase 2 manual mode, vraćen iz git istorije, commit 9b20f14)
+ * -- isti obrazac kao `?backend=` override iznad: bez perzistencije, važi
+ * samo za tu jednu posjetu/URL. Podrazumevano (bez parametra) ISKLJUČENO,
+ * pa pravi korisnici ne mogu slučajno da ga aktiviraju.
+ *
+ * PODSJETNIK: ovo je namjerno lakše ukloniti nego dodati -- kad snimanje
+ * demo videa bude gotovo, jednostavno prestani da dodaješ `?allowMapClick=1`
+ * u URL. Kod ostaje u repo-u (dormant po defaultu), ne treba git revert.
+ */
+export const ALLOW_MAP_CLICK = new URLSearchParams(window.location.search).get("allowMapClick") === "1";
+
 // --- Viewing sector granice (Phase 3) ---
 // MORA biti usklađeno sa backend/app/core/config.py
 // (fov_min_deg/fov_max_deg/fov_default_deg, radius_min_km/radius_max_km/

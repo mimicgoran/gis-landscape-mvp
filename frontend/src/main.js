@@ -38,6 +38,14 @@
  * fallback -- vidi services/geolocationService.js za detalje i najjednostavniji
  * put nazad ako se ovo pokaže kao problem u praksi.
  *
+ * NAPOMENA (korisnička odluka, 29.09.2026 -- sekcija 45, PRIVREMENO): za
+ * potrebe snimanja demo videa sa računara, klik-na-mapu je ponovo
+ * dostupan, ali ISKLJUČIVO iza `config.ALLOW_MAP_CLICK` zastavice
+ * (`?allowMapClick=1` u URL-u) -- vidi config.js i
+ * map/observerInteraction.js za mehanizam. Bez tog query parametra
+ * (podrazumevano, za sve prave korisnike), ponašanje je identično kao
+ * gore opisano -- ISKLJUČIVO geolocation dugme.
+ *
  * PHASE 12 (kompas): dugme "Koristi kompas" je dio `controlsPanel.js`
  * (ne actionButtons.js) jer mijenja KONTINUIRANU kontrolu (heading slajder),
  * ne pokreće jednokratnu akciju -- vidi `services/deviceOrientationService.js`
@@ -45,12 +53,13 @@
  */
 
 import { createMapView } from "./map/mapSetup.js";
-import { placeObserverMarker } from "./map/observerInteraction.js";
+import { placeObserverMarker, setupObserverInteraction } from "./map/observerInteraction.js";
 import { renderSector } from "./map/sectorRenderer.js";
 import { renderResults } from "./map/resultsRenderer.js";
 import { initControlsPanel } from "./ui/controlsPanel.js";
 import { initResultsPanel } from "./ui/resultsPanel.js";
 import { initActionButtons } from "./ui/actionButtons.js";
+import { ALLOW_MAP_CLICK } from "./config.js";
 import { getCurrentPosition } from "./services/geolocationService.js";
 import { fetchAnalysis } from "./services/analyzeService.js";
 
@@ -176,6 +185,21 @@ async function bootstrap() {
         }
       },
     });
+
+    if (ALLOW_MAP_CLICK) {
+      // PRIVREMENO (sekcija 45, ?allowMapClick=1) -- vidi napomenu na vrhu
+      // fajla i config.js. Za prave korisnike (bez tog query parametra)
+      // ovaj blok se nikad ne izvršava -- ponašanje ostaje nepromijenjeno.
+      console.warn(
+        "[main] ?allowMapClick=1 aktivan -- klik na mapu postavlja observera (SAMO za demo/dev, vidi config.js)."
+      );
+      await setupObserverInteraction(view, observerLayer, (observer) => {
+        currentObserver = observer;
+        renderSector(sectorLayer, view, currentObserver, controls.getSector());
+        clearStaleResults();
+        console.info("[main] Observer postavljen klikom (?allowMapClick=1):", observer);
+      });
+    }
   } catch (error) {
     console.error("[main] Neuspješna inicijalizacija mape:", error);
     showBanner(
