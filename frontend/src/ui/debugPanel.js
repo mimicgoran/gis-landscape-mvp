@@ -123,6 +123,12 @@ export function initDebugPanel() {
         ["Zaklonjeno", debug?.blocked_count ?? "N/A"],
         ["Area feature-i (ukupno)", debug?.area_features_total ?? "N/A"],
         ["Area feature-i u sektoru", debug?.area_features_in_sector ?? "N/A"],
+        // Graceful degradation (docs/architecture-feasibility-review.md,
+        // sekcija 43/44) -- ako Overpass (area feature-i) padne, analiza i
+        // dalje uspe sa vrhovima/naseljima, ali ovo polje nosi razlog zašto
+        // je area_features prazan. "OK" (ne "N/A") kad nema greške, da se ne
+        // meša sa slučajem kad polje uopšte ne postoji u starijem odgovoru.
+        ["Area feature-i (greška)", debug?.area_features_error ?? "OK"],
       ]);
     },
   };
