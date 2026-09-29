@@ -22,12 +22,18 @@ normalno preko kućne/mobilne mreže -- zato ostaje PRVI/podrazumevani
 mirror (radi lokalni development bez izmene), a fallback lista postoji
 za produkcioni (Render) slučaj.
 
-Redosled fallback mirror-a je biran nakon empirijske provjere u trenutku
-pisanja: `overpass.osm.ch` je odgovorio trenutno i validno,
-`overpass.private.coffee` je bio spor/timeout ali dokumentovano bez
-rate limita (vrijedno drugog mjesta), `overpass-api.de` je na kraju kao
-poslednji pokušaj (radi za lokalni razvoj, i mogao bi da radi na Renderu
-ako se privremena IP blokada u međuvremenu digne).
+AŽURIRANO (isti dan, nakon produkcionog testa): `overpass.osm.ch` je
+PRVOBITNO dodat kao prvi fallback jer je brzo odgovarao, ali je naknadno
+empirijski potvrđeno (upit protiv centra Züricha -- garantovano gusto
+mapirana oblast) da taj mirror vraća PRAZAN `elements` niz za SVAKU
+lokaciju, uvijek, sa HTTP 200 -- dakle "radi" (nikad ne baca grešku) ali
+nikad ne vraća stvarne podatke. Ovo je OPASNIJE od obične nedostupnosti:
+kod ovo tretira kao legitiman "nema rezultata" odgovor umjesto da pređe
+na sljedeći mirror. UKLONJEN iz liste. `overpass.private.coffee` ostaje
+(spor, ali potvrđeno vraća STVARNE podatke kad odgovori), a
+`overpass-api.de` ostaje kao poslednji pokušaj (radi za lokalni razvoj
+preko kućne mreže; na Renderu možda blokiran, ali besplatno je probati
+kao zadnju opciju).
 
 VAŽNO -- ponašanje kod trajnih (ne-tranzitornih) HTTP grešaka je
 NAMERNO ostalo "abortuj odmah, ne probaj sledeći mirror": upit koji je
@@ -62,7 +68,6 @@ _TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
 # kućne mreže, ili za ručno postavljanje drugog mirror-a preko env
 # varijable bez izmjene koda). Ako je već u listi ispod, ne duplira se.
 _FALLBACK_MIRRORS: list[str] = [
-    "https://overpass.osm.ch/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
 ]
