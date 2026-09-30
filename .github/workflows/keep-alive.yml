@@ -1,0 +1,55 @@
+name: Keep backend awake
+
+# Zasto ovo postoji (korisnicki zahtjev, docs/architecture-feasibility-
+# review.md sekcija 46): Render free web servis se uspava posle 15 min bez
+# saobracaja i budi se ~1 min na sledeci zahtjev (potvrdjeno protiv
+# TRENUTNE Render dokumentacije, ne stare pretpostavke -- render.com/docs/
+# free). Ovaj workflow salje ping na backend svakih 10 minuta da
+# saobracaj nikad ne prestane na 15+ minuta, pa se servis nikad ne uspava.
+#
+# VAZNO -- mora pogadjati STVARAN app endpoint (/api/v1/health), NIKAD
+# /robots.txt: Render sam odgovara na /robots.txt DOK je servis uspavan
+# (bez prosledjivanja aplikaciji), pa bi ping na taj path izgledao uspjesno
+# a servis bi ipak ostao uspavan -- poznata zamka, potvrdjena istrazivanjem
+# prije implementacije.
+#
+# Cijena: 0 -- repo je javan (public), pa GitHub Actions standardni
+# runneri ne trose placeni minutaz (potvrdjeno protiv trenutne GitHub
+# dokumentacije o naplati). Trosak na Render strani: ovaj servis ce sada
+# trositi skoro CIJELI mjesecni budzet od 750 besplatnih instance-sati
+# (~720-744h/mjesec u kalendarskom mjesecu) umjesto da spava vecinu
+# vremena -- prihvatljivo jer je ovo JEDINI besplatni servis u ovom
+# workspace-u (korisnicka odluka, sekcija 46). Ako se ikad doda drugi
+# besplatni Render servis u ISTI nalog, ovaj budzet postaje deljen i
+# vrijedi ponovo provjeriti.
+#
+# Ako ikad zatreba iskljuciti (npr. prelazak na placeni Render plan koji
+# ne spava): obrisati ovaj fajl ili zakomentarisati `schedule` blok ispod
+# (GitHub Actions nema "enabled: false" polje za schedule).
+#
+# Offset na :04/:14/... (ne tacno :00/:10/...) -- GitHub-ova preporuka da
+# se izbjegne vrh sata/desetominutne oznake kad je opterecenje najvece i
+# scheduled workflow-i kasne (docs.github.com/actions, "scheduled events").
+
+on:
+  schedule:
+    - cron: "4,14,24,34,44,54 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          # --max-time 90 -- pokriva dokumentovani Render cold-start (~1 min)
+          # bez nepotrebnog dugog cekanja ako je servis stvarno nedostupan.
+          # "|| true" -- ping koji ne uspije NE treba da oboji ovaj workflow
+          # crveno u Actions tabu (isti princip kao i sam health check --
+          # ovo je best-effort keep-alive, ne kriticna provjera ispravnosti).
+          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 \
+            "https://gis-landscape-mvp-backend.onrender.com/api/v1/health" || echo "000")
+          echo "Health endpoint HTTP status: $status"
+          if [ "$status" != "200" ]; then
+            echo "::warning::Backend health ping nije vratio 200 (dobijeno: $status) -- moguce da je servis i dalje u cold-startu ili da ima problem."
+          fi
